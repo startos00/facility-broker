@@ -1,0 +1,385 @@
+@import "tailwindcss";
+
+@theme {
+  --color-void: #04060b;
+  --color-surface: #0c1018;
+  --color-text-primary: #d4dce8;
+  --color-text-dim: #5a6a80;
+  --color-text-bright: #f0f4f8;
+  --color-signal-green: #2ee672;
+  --color-signal-cyan: #22d3ee;
+  --color-signal-orange: #ff8033;
+  --color-signal-purple: #b07aff;
+  --color-signal-pink: #ff5aad;
+  --color-signal-yellow: #ffd026;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-void);
+  color: var(--color-text-primary);
+  overflow: hidden;
+}
+
+/* ── Glass Panels ── */
+
+.glass-panel {
+  background: rgba(12, 16, 24, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+}
+
+.glass-panel-solid {
+  background: rgba(8, 11, 18, 0.96);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ── Property Markers ── */
+
+.property-marker {
+  width: 16px;
+  height: 16px;
+  position: relative;
+  cursor: pointer;
+}
+
+.property-marker-inner {
+  width: 16px;
+  height: 16px;
+  background: var(--color-signal-orange);
+  border-radius: 50%;
+  border: 2px solid rgba(255, 128, 51, 0.4);
+  box-shadow:
+    0 0 12px rgba(255, 128, 51, 0.5),
+    0 0 24px rgba(255, 128, 51, 0.2);
+  animation: pulse-orange 3s ease-in-out infinite;
+}
+
+.property-marker::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 36px;
+  height: 36px;
+  background: radial-gradient(circle, rgba(255, 128, 51, 0.12) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+/* ── Placement Marker ── */
+
+.placement-marker {
+  width: 22px;
+  height: 22px;
+  position: relative;
+}
+
+.placement-marker-inner {
+  width: 22px;
+  height: 22px;
+  background: var(--color-signal-orange);
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  box-shadow: 0 0 20px rgba(255, 128, 51, 0.6);
+  animation: pulse-place 1.5s ease-in-out infinite;
+}
+
+.placement-marker::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(255, 128, 51, 0.25);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: ring-expand 1.5s ease-out infinite;
+}
+
+/* ── FAB Button ── */
+
+.fab-button {
+  position: absolute;
+  bottom: 3rem;
+  right: 2rem;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1.5rem;
+  background: rgba(255, 128, 51, 0.1);
+  border: 1px solid rgba(255, 128, 51, 0.3);
+  border-radius: 100px;
+  color: var(--color-signal-orange);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.15em;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.fab-button:hover {
+  background: rgba(255, 128, 51, 0.18);
+  border-color: rgba(255, 128, 51, 0.5);
+  box-shadow: 0 0 30px rgba(255, 128, 51, 0.15);
+  transform: translateY(-1px);
+}
+
+.fab-icon {
+  font-size: 1.25rem;
+  font-weight: 300;
+  line-height: 1;
+}
+
+/* ── Vignette ── */
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(4, 6, 11, 0.5) 100%);
+}
+
+/* ── Status Bar ── */
+
+.status-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.4rem 1rem;
+  background: rgba(4, 6, 11, 0.85);
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+/* ── Search Bar ── */
+
+.search-bar {
+  position: absolute;
+  top: 1.25rem;
+  left: 1.25rem;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  background: rgba(12, 16, 24, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  width: 280px;
+  transition: border-color 0.2s;
+}
+
+.search-bar:focus-within {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.search-bar input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--color-text-primary);
+  font-size: 0.8rem;
+  font-family: var(--font-sans);
+}
+
+.search-bar input::placeholder {
+  color: var(--color-text-dim);
+  opacity: 0.6;
+}
+
+.search-icon {
+  color: var(--color-text-dim);
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+/* ── Form Fields ── */
+
+.field-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.2em;
+  color: var(--color-text-dim);
+  text-transform: uppercase;
+}
+
+.field-input {
+  display: block;
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: var(--color-text-primary);
+  font-size: 0.85rem;
+  font-family: var(--font-sans);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.field-input:focus {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.field-input::placeholder {
+  color: var(--color-text-dim);
+  opacity: 0.5;
+}
+
+/* ── Typology Buttons ── */
+
+.typology-btn {
+  padding: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--color-text-dim);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.typology-btn:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  color: var(--color-text-primary);
+}
+
+.typology-btn-active {
+  border-color: rgba(255, 128, 51, 0.4) !important;
+  background: rgba(255, 128, 51, 0.08);
+  color: var(--color-signal-orange) !important;
+}
+
+/* ── Submit Button ── */
+
+.submit-btn {
+  width: 100%;
+  padding: 0.875rem;
+  background: rgba(255, 128, 51, 0.12);
+  border: 1px solid rgba(255, 128, 51, 0.3);
+  border-radius: 8px;
+  color: var(--color-signal-orange);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.15em;
+  cursor: pointer;
+  transition: all 0.25s;
+}
+
+.submit-btn:hover:not(:disabled) {
+  background: rgba(255, 128, 51, 0.22);
+  box-shadow: 0 0 24px rgba(255, 128, 51, 0.12);
+}
+
+.submit-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ── Animations ── */
+
+@keyframes pulse-orange {
+  0%, 100% {
+    box-shadow: 0 0 12px rgba(255, 128, 51, 0.5), 0 0 24px rgba(255, 128, 51, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 18px rgba(255, 128, 51, 0.7), 0 0 36px rgba(255, 128, 51, 0.3);
+  }
+}
+
+@keyframes pulse-place {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+
+@keyframes ring-expand {
+  0% {
+    transform: translate(-50%, -50%) scale(0.8);
+    opacity: 0.6;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1.6);
+    opacity: 0;
+  }
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); opacity: 0.8; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.slide-in-right {
+  animation: slide-in-right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+/* ── Scrollbar ── */
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+}
+
+/* ── Mapbox Overrides ── */
+
+.mapboxgl-ctrl-group {
+  background: rgba(12, 16, 24, 0.8) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  backdrop-filter: blur(12px);
+  border-radius: 8px !important;
+}
+
+.mapboxgl-ctrl-group button {
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.mapboxgl-ctrl-group button .mapboxgl-ctrl-icon {
+  filter: invert(1) brightness(0.7);
+}
