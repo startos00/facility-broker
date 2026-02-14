@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@mapbox/mapbox-gl-draw':
+        specifier: ^1.5.1
+        version: 1.5.1
       '@mapbox/mapbox-gl-geocoder':
         specifier: ^5.1.2
         version: 5.1.2
@@ -536,9 +539,20 @@ packages:
   '@mapbox/fusspot@0.4.0':
     resolution: {integrity: sha512-6sys1vUlhNCqMvJOqPEPSi0jc9tg7aJ//oG1A16H3PXoIt9whtNngD7UzBHUVTH15zunR/vRvMtGNVsogm1KzA==}
 
+  '@mapbox/geojson-area@0.2.2':
+    resolution: {integrity: sha512-bBqqFn1kIbLBfn7Yq1PzzwVkPYQr9lVUeT8Dhd0NL5n76PBuXzOcuLV7GOSbEB1ia8qWxH4COCvFpziEu/yReA==}
+
+  '@mapbox/geojson-normalize@0.0.1':
+    resolution: {integrity: sha512-82V7YHcle8lhgIGqEWwtXYN5cy0QM/OHq3ypGhQTbvHR57DF0vMHMjjVSQKFfVXBe/yWCBZTyOuzvK7DFFnx5Q==}
+    hasBin: true
+
   '@mapbox/jsonlint-lines-primitives@2.0.2':
     resolution: {integrity: sha512-rY0o9A5ECsTQRVhv7tL/OyDpGAoUB4tTvLiW1DSzQGq4bvTPhNw1VpSNjDJc5GFZ2XuyOtSWSVN05qOtcD71qQ==}
     engines: {node: '>= 0.6'}
+
+  '@mapbox/mapbox-gl-draw@1.5.1':
+    resolution: {integrity: sha512-DnR/oarZVoIrVHssAn+mtpuGzYH+ebORoPjow46zTBNPod/HQnvIZGtL6hIb5BVWxxH49RC9D20ipxiO9WDRxA==}
+    engines: {node: ^18.0.0 || >=20.0.0}
 
   '@mapbox/mapbox-gl-geocoder@5.1.2':
     resolution: {integrity: sha512-UjtGKL/bfaUTf4NfDaKCeYIvtMIJi9nr94QQB13p8uPXhSfjo931zhWNAib3YY7xkNqzVEBWzFGuB1IT5w7lGA==}
@@ -731,6 +745,18 @@ packages:
 
   '@tailwindcss/postcss@4.1.18':
     resolution: {integrity: sha512-Ce0GFnzAOuPyfV5SxjXGn0CubwGcuDB0zcdaPuCSzAa/2vII24JTkH+I6jcbXLb1ctjZMZZI6OjDaLPJQL1S0g==}
+
+  '@turf/clone@7.3.4':
+    resolution: {integrity: sha512-pwQ+RyQw986uu7IulY/18NRAebwZZScb084bvVqVkTrllwLSv4oVBqUxmUMiwtp+PNdiRGRFOvNyZqtRsiD+Jw==}
+
+  '@turf/helpers@7.3.4':
+    resolution: {integrity: sha512-U/S5qyqgx3WTvg4twaH0WxF3EixoTCfDsmk98g1E3/5e2YKp7JKYZdz0vivsS5/UZLJeZDEElOSFH4pUgp+l7g==}
+
+  '@turf/meta@7.3.4':
+    resolution: {integrity: sha512-tlmw9/Hs1p2n0uoHVm1w3ugw1I6L8jv9YZrcdQa4SH5FX5UY0ATrKeIvfA55FlL//PGuYppJp+eyg/0eb4goqw==}
+
+  '@turf/projection@7.3.4':
+    resolution: {integrity: sha512-p91zOaLmzoBHzU/2H6Ot1tOhTmAom85n1P7I4Oo0V9xU8hmJXWfNnomLFf/6rnkKDIFZkncLQIBz4iIecZ61sA==}
 
   '@types/cacheable-request@6.0.3':
     resolution: {integrity: sha512-IQ3EbTzGxIigb1I3qPZc1rWJnH0BmSKv5QYTalEwweFvyBDLSAe24zP0le/hyi7ecGfZVlIVAg4BZqb8WBwKqw==}
@@ -1074,6 +1100,9 @@ packages:
     resolution: {integrity: sha512-BwY5b5Ql4+qZoefgMj2NUmx+tehVTH/Kf4k1ZEtOHNFcm2wSxMRo992l6X3TIgni2eZVTZ85xMOjF31fwZAj6Q==}
     engines: {node: '>=0.10.0'}
 
+  fast-deep-equal@3.1.3:
+    resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
+
   find-up@4.1.0:
     resolution: {integrity: sha512-PpOwAdQ/YlXQ2vj8a3h8IipDuYRi3wceVQQGYWxNINccq40Anw7BlsEXCMbt1Zt+OLA6Fq9suIpIWD0OsnISlw==}
     engines: {node: '>=8'}
@@ -1364,6 +1393,11 @@ packages:
   nanoid@3.3.11:
     resolution: {integrity: sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
+    hasBin: true
+
+  nanoid@5.1.6:
+    resolution: {integrity: sha512-c7+7RQ+dMB5dPwwCp4ee1/iV/q2P6aK1mTZcfr1BTuVlyW9hJYiMPybJCcnBlQtuSmTIWNeazm/zqNoZSSElBg==}
+    engines: {node: ^18 || >=20}
     hasBin: true
 
   next@16.1.6:
@@ -1692,6 +1726,9 @@ packages:
   validate-npm-package-license@3.0.4:
     resolution: {integrity: sha512-DpKm2Ui/xN7/HQKCtpZxoRWBhZ9Z0kqtygG8XCgNQ8ZlDnxuQmWhj566j8fN4Cu3/JmbhsDo7fcAJq4s9h27Ew==}
 
+  wgs84@0.0.0:
+    resolution: {integrity: sha512-ANHlY4Rb5kHw40D0NJ6moaVfOCMrp9Gpd1R/AIQYg2ko4/jzcJ+TVXYYF6kXJqQwITvEZP4yEthjM7U6rYlljQ==}
+
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
@@ -2000,7 +2037,22 @@ snapshots:
       is-plain-obj: 1.1.0
       xtend: 4.0.2
 
+  '@mapbox/geojson-area@0.2.2':
+    dependencies:
+      wgs84: 0.0.0
+
+  '@mapbox/geojson-normalize@0.0.1': {}
+
   '@mapbox/jsonlint-lines-primitives@2.0.2': {}
+
+  '@mapbox/mapbox-gl-draw@1.5.1':
+    dependencies:
+      '@mapbox/geojson-area': 0.2.2
+      '@mapbox/geojson-normalize': 0.0.1
+      '@mapbox/point-geometry': 1.1.0
+      '@turf/projection': 7.3.4
+      fast-deep-equal: 3.1.3
+      nanoid: 5.1.6
 
   '@mapbox/mapbox-gl-geocoder@5.1.2':
     dependencies:
@@ -2165,6 +2217,31 @@ snapshots:
       '@tailwindcss/oxide': 4.1.18
       postcss: 8.5.6
       tailwindcss: 4.1.18
+
+  '@turf/clone@7.3.4':
+    dependencies:
+      '@turf/helpers': 7.3.4
+      '@types/geojson': 7946.0.16
+      tslib: 2.8.1
+
+  '@turf/helpers@7.3.4':
+    dependencies:
+      '@types/geojson': 7946.0.16
+      tslib: 2.8.1
+
+  '@turf/meta@7.3.4':
+    dependencies:
+      '@turf/helpers': 7.3.4
+      '@types/geojson': 7946.0.16
+      tslib: 2.8.1
+
+  '@turf/projection@7.3.4':
+    dependencies:
+      '@turf/clone': 7.3.4
+      '@turf/helpers': 7.3.4
+      '@turf/meta': 7.3.4
+      '@types/geojson': 7946.0.16
+      tslib: 2.8.1
 
   '@types/cacheable-request@6.0.3':
     dependencies:
@@ -2453,6 +2530,8 @@ snapshots:
       assign-symbols: 1.0.0
       is-extendable: 1.0.1
 
+  fast-deep-equal@3.1.3: {}
+
   find-up@4.1.0:
     dependencies:
       locate-path: 5.0.0
@@ -2735,6 +2814,8 @@ snapshots:
   murmurhash-js@1.0.0: {}
 
   nanoid@3.3.11: {}
+
+  nanoid@5.1.6: {}
 
   next@16.1.6(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
     dependencies:
@@ -3062,6 +3143,8 @@ snapshots:
     dependencies:
       spdx-correct: 3.2.0
       spdx-expression-parse: 3.0.1
+
+  wgs84@0.0.0: {}
 
   wrappy@1.0.2: {}
 

@@ -1,28 +1,74 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import Map, { Source, Layer, Marker, NavigationControl } from 'react-map-gl/mapbox';
-import type { MapLayerMouseEvent } from 'react-map-gl/mapbox';
+import type { MapMouseEvent } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { amenitiesGeoJSON } from '@/lib/buffalo-amenities';
+import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
+import { amenitiesGeoJSON, searchZonesGeoJSON } from '@/lib/buffalo-amenities';
 import SubmissionModal from './SubmissionModal';
 import DetailDrawer from './DetailDrawer';
+import DrawControl from './DrawControl';
 
-export interface Property {
+export type Typology = 'society' | 'asset' | 'facility';
+
+export interface NodeData {
   id: string;
   nodeName: string;
+  typology: Typology;
+  description: string | null;
+  photoUrl: string | null;
   latitude: number;
   longitude: number;
-  typology: string;
-  priceEstimate: string | null;
-  notes: string | null;
-  photoUrl: string | null;
+  boundary: GeoJSON.Polygon | null;
+  population: number | null;
+  vibe: string | null;
+  nextEventDate: string | null;
+  acreage: string | null;
+  price: number | null;
+  zoning: string | null;
+  editability: number | null;
+  isDistressed: boolean;
+  capacityPax: number | null;
+  internetSpeed: string | null;
+  availability: string | null;
+  isFreeOffer: boolean;
+  seekingCapital: boolean;
+  capitalAmount: string | null;
   createdAt: string;
 }
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
+const NODE_COLORS: Record<Typology, string> = {
+  society: '#22d3ee',
+  asset: '#ff8033',
+  facility: '#b07aff',
+};
+
+interface NearestAmenity {
+  name: string;
+  color: string;
+  coordinates: [number, number];
+  distance: number;
+}
+
+function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 3959;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export default function MapApp() {
+  // ── Theme ──
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const isDark = theme === 'dark';
+
+  // ── Map ──
   const [viewState, setViewState] = useState({
     latitude: 42.8864,
     longitude: -78.8784,
@@ -30,60 +76,177 @@ export default function MapApp() {
     pitch: 0,
     bearing: 0,
   });
-
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
-  const [showSubmission, setShowSubmission] = useState(false);
-  const [placingPin, setPlacingPin] = useState(false);
-  const [pinLocation, setPinLocation] = useState<{ latitude: number; longitude: number } | null>(
-    null,
-  );
   const [cursorCoords, setCursorCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Fetch properties on mount
+  // ── Data ──
+  const [nodes, setNodes] = useState<NodeData[]>([]);
+  const [selectedNode, setSelectedNode] = useState<NodeData | null>(null);
+
+  // ── Filters ──
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [activeTypologies, setActiveTypologies] = useState<Set<Typology>>(
+    new Set(['society', 'asset', 'facility']),
+  );
+  const [activeAmenities, setActiveAmenities] = useState<Set<string>>(
+    new Set(['park', 'architecture', 'transit', 'institution']),
+  );
+  const [showParcels, setShowParcels] = useState(true);
+
+  // ── Submission flow ──
+  const [submissionStep, setSubmissionStep] = useState<
+    'idle' | 'select-type' | 'choose-method' | 'placing' | 'drawing' | 'form'
+  >('idle');
+  const [selectedTypology, setSelectedTypology] = useState<Typology | null>(null);
+  const [pinLocation, setPinLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [drawnBoundary, setDrawnBoundary] = useState<GeoJSON.Polygon | null>(null);
+
+  // ── Fetch nodes ──
   useEffect(() => {
-    fetchProperties();
+    fetchNodes();
   }, []);
 
-  const fetchProperties = () => {
-    fetch('/api/properties')
+  const fetchNodes = () => {
+    fetch('/api/nodes')
       .then((r) => r.json())
-      .then((data) => setProperties(data))
+      .then((data) => setNodes(data))
       .catch(console.error);
   };
 
+  // ── Filtered data ──
+  const filteredNodes = nodes.filter((n) => activeTypologies.has(n.typology));
+
+  const filteredAmenitiesGeoJSON = useMemo(
+    () => ({
+      ...amenitiesGeoJSON,
+      features: amenitiesGeoJSON.features.filter((f: GeoJSON.Feature) =>
+        activeAmenities.has((f.properties as Record<string, string>)?.category ?? ''),
+      ),
+    }),
+    [activeAmenities],
+  );
+
+  // ── Nearest amenities (radius lines) ──
+  const nearestAmenities = useMemo((): NearestAmenity[] => {
+    if (!selectedNode || selectedNode.typology !== 'asset') return [];
+    return amenitiesGeoJSON.features
+      .filter((f: GeoJSON.Feature) => f.geometry.type === 'Point')
+      .map((f: GeoJSON.Feature) => {
+        const [aLng, aLat] = (f.geometry as GeoJSON.Point).coordinates;
+        const props = f.properties as Record<string, string> | null;
+        return {
+          name: props?.name ?? '',
+          color: props?.color ?? '#fff',
+          coordinates: [aLng, aLat] as [number, number],
+          distance: haversineDistance(selectedNode.latitude, selectedNode.longitude, aLat, aLng),
+        };
+      })
+      .sort((a: { distance: number }, b: { distance: number }) => a.distance - b.distance)
+      .slice(0, 3);
+  }, [selectedNode]);
+
+  const radiusLinesGeoJSON = useMemo(() => {
+    if (!selectedNode || nearestAmenities.length === 0) return null;
+    return {
+      type: 'FeatureCollection' as const,
+      features: nearestAmenities.map((a) => ({
+        type: 'Feature' as const,
+        properties: { name: a.name, distance: `${a.distance.toFixed(1)} mi` },
+        geometry: {
+          type: 'LineString' as const,
+          coordinates: [[selectedNode.longitude, selectedNode.latitude], a.coordinates],
+        },
+      })),
+    };
+  }, [selectedNode, nearestAmenities]);
+
+  // ── Node boundary polygons ──
+  const nodeBoundariesGeoJSON = useMemo((): GeoJSON.FeatureCollection => ({
+    type: 'FeatureCollection',
+    features: filteredNodes
+      .filter((n) => n.boundary)
+      .map((n) => ({
+        type: 'Feature' as const,
+        properties: {
+          id: n.id,
+          name: n.nodeName,
+          color: NODE_COLORS[n.typology],
+          typology: n.typology,
+        },
+        geometry: n.boundary as GeoJSON.Polygon,
+      })),
+  }), [filteredNodes]);
+
+  // ── Handlers ──
+  const toggleTypology = (t: Typology) =>
+    setActiveTypologies((prev) => {
+      const next = new Set(prev);
+      next.has(t) ? next.delete(t) : next.add(t);
+      return next;
+    });
+
+  const toggleAmenity = (a: string) =>
+    setActiveAmenities((prev) => {
+      const next = new Set(prev);
+      next.has(a) ? next.delete(a) : next.add(a);
+      return next;
+    });
+
   const handleMapClick = useCallback(
-    (e: MapLayerMouseEvent) => {
-      if (placingPin) {
+    (e: MapMouseEvent) => {
+      if (submissionStep === 'placing') {
         setPinLocation({ latitude: e.lngLat.lat, longitude: e.lngLat.lng });
-        setShowSubmission(true);
+        setSubmissionStep('form');
       }
     },
-    [placingPin],
+    [submissionStep],
   );
 
   const handleFABClick = () => {
-    setPlacingPin(true);
-    setSelectedProperty(null);
+    setSubmissionStep('select-type');
+    setSelectedNode(null);
   };
 
-  const handleSubmissionClose = () => {
-    setShowSubmission(false);
-    setPlacingPin(false);
+  const handleSelectTypology = (t: Typology) => {
+    setSelectedTypology(t);
+    setSubmissionStep('choose-method');
+  };
+
+  const handleChoosePin = () => {
+    setSubmissionStep('placing');
+  };
+
+  const handleChooseDraw = () => {
+    setSubmissionStep('drawing');
+  };
+
+  const handleDrawCreate = useCallback((e: { features: GeoJSON.Feature[] }) => {
+    const polygon = e.features[0]?.geometry as GeoJSON.Polygon | undefined;
+    if (polygon) {
+      setDrawnBoundary(polygon);
+      const coords = polygon.coordinates[0];
+      const lat = coords.reduce((s, c) => s + c[1], 0) / coords.length;
+      const lng = coords.reduce((s, c) => s + c[0], 0) / coords.length;
+      setPinLocation({ latitude: lat, longitude: lng });
+      setSubmissionStep('form');
+    }
+  }, []);
+
+  const handleCancel = () => {
+    setSubmissionStep('idle');
+    setSelectedTypology(null);
     setPinLocation(null);
+    setDrawnBoundary(null);
   };
 
   const handleSubmissionSuccess = () => {
-    handleSubmissionClose();
-    fetchProperties();
+    handleCancel();
+    fetchNodes();
   };
 
-  const handlePropertyClick = (property: Property) => {
-    setSelectedProperty(property);
-    setShowSubmission(false);
-    setPlacingPin(false);
-    setPinLocation(null);
+  const handleNodeClick = (node: NodeData) => {
+    setSelectedNode(node);
+    handleCancel();
   };
 
   const handleSearch = async (e: React.FormEvent) => {
@@ -99,158 +262,219 @@ export default function MapApp() {
         setViewState((prev) => ({ ...prev, latitude: lat, longitude: lng, zoom: 13 }));
       }
     } catch {
-      // Silently fail geocoding
+      /* silent */
     }
   };
 
+  const mapStyle = isDark
+    ? 'mapbox://styles/mapbox/dark-v11'
+    : 'mapbox://styles/mapbox/light-v11';
+
+  const totalFilters = activeTypologies.size + activeAmenities.size + (showParcels ? 1 : 0);
+  const maxFilters = 3 + 4 + 1;
+
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-void">
+    <div className={`relative h-screen w-screen overflow-hidden ${isDark ? '' : 'light'}`}>
       <Map
         mapboxAccessToken={MAPBOX_TOKEN}
         {...viewState}
         onMove={(e) => setViewState(e.viewState)}
         onClick={handleMapClick}
         onMouseMove={(e) => setCursorCoords({ lat: e.lngLat.lat, lng: e.lngLat.lng })}
-        mapStyle="mapbox://styles/mapbox/dark-v11"
-        cursor={placingPin ? 'crosshair' : 'grab'}
+        mapStyle={mapStyle}
+        cursor={submissionStep === 'placing' ? 'crosshair' : 'grab'}
         style={{ width: '100%', height: '100%' }}
       >
         <NavigationControl position="top-right" showCompass={false} />
 
+        {/* ── Draw Control ── */}
+        {submissionStep === 'drawing' && (
+          <DrawControl
+            onCreate={handleDrawCreate}
+            onUpdate={handleDrawCreate}
+            onDelete={() => setDrawnBoundary(null)}
+            position="top-left"
+          />
+        )}
+
+        {/* ── Land Parcel Boundaries ── */}
+        {showParcels && (
+          <Source id="parcels" type="vector" url="mapbox://mapbox.mapbox-streets-v8">
+            <Layer
+              id="parcel-boundaries"
+              type="line"
+              source-layer="building"
+              minzoom={14}
+              paint={{
+                'line-color': isDark ? 'rgba(34, 211, 238, 0.25)' : 'rgba(59, 130, 246, 0.3)',
+                'line-width': 0.8,
+              }}
+            />
+            <Layer
+              id="parcel-fill"
+              type="fill"
+              source-layer="building"
+              minzoom={14}
+              paint={{
+                'fill-color': isDark ? 'rgba(34, 211, 238, 0.03)' : 'rgba(59, 130, 246, 0.04)',
+              }}
+            />
+          </Source>
+        )}
+
         {/* ── Amenity Layers ── */}
-        <Source id="amenities" type="geojson" data={amenitiesGeoJSON}>
-          {/* Polygon fill */}
-          <Layer
-            id="amenity-polygon-fill"
-            type="fill"
-            filter={['==', ['geometry-type'], 'Polygon']}
-            paint={{
-              'fill-color': ['get', 'color'],
-              'fill-opacity': 0.1,
-            }}
-          />
-          {/* Polygon border */}
-          <Layer
-            id="amenity-polygon-stroke"
-            type="line"
-            filter={['==', ['geometry-type'], 'Polygon']}
-            paint={{
-              'line-color': ['get', 'color'],
-              'line-width': 1.5,
-              'line-opacity': 0.5,
-            }}
-          />
-          {/* Polygon glow */}
-          <Layer
-            id="amenity-polygon-glow"
-            type="line"
-            filter={['==', ['geometry-type'], 'Polygon']}
-            paint={{
-              'line-color': ['get', 'color'],
-              'line-width': 6,
-              'line-opacity': 0.08,
-              'line-blur': 4,
-            }}
-          />
-          {/* Line stroke */}
-          <Layer
-            id="amenity-line-stroke"
-            type="line"
-            filter={['==', ['geometry-type'], 'LineString']}
-            paint={{
-              'line-color': ['get', 'color'],
-              'line-width': 3,
-              'line-opacity': 0.7,
-            }}
-          />
-          {/* Line glow */}
-          <Layer
-            id="amenity-line-glow"
-            type="line"
-            filter={['==', ['geometry-type'], 'LineString']}
-            paint={{
-              'line-color': ['get', 'color'],
-              'line-width': 10,
-              'line-opacity': 0.12,
-              'line-blur': 5,
-            }}
-          />
-          {/* Point circles */}
-          <Layer
-            id="amenity-points"
-            type="circle"
-            filter={['==', ['geometry-type'], 'Point']}
-            paint={{
-              'circle-color': ['get', 'color'],
-              'circle-radius': 5,
-              'circle-opacity': 0.9,
-              'circle-stroke-width': 1.5,
-              'circle-stroke-color': ['get', 'color'],
-              'circle-stroke-opacity': 0.3,
-            }}
-          />
-          {/* Point glow */}
-          <Layer
-            id="amenity-points-glow"
-            type="circle"
-            filter={['==', ['geometry-type'], 'Point']}
-            paint={{
-              'circle-color': ['get', 'color'],
-              'circle-radius': 18,
-              'circle-opacity': 0.06,
-              'circle-blur': 1,
-            }}
-          />
+        <Source id="amenities" type="geojson" data={filteredAmenitiesGeoJSON}>
+          <Layer id="amenity-polygon-fill" type="fill" filter={['==', ['geometry-type'], 'Polygon']} paint={{ 'fill-color': ['get', 'color'], 'fill-opacity': 0.1 }} />
+          <Layer id="amenity-polygon-stroke" type="line" filter={['==', ['geometry-type'], 'Polygon']} paint={{ 'line-color': ['get', 'color'], 'line-width': 1.5, 'line-opacity': 0.5 }} />
+          <Layer id="amenity-polygon-glow" type="line" filter={['==', ['geometry-type'], 'Polygon']} paint={{ 'line-color': ['get', 'color'], 'line-width': 6, 'line-opacity': 0.08, 'line-blur': 4 }} />
+          <Layer id="amenity-line-stroke" type="line" filter={['==', ['geometry-type'], 'LineString']} paint={{ 'line-color': ['get', 'color'], 'line-width': 3, 'line-opacity': 0.7 }} />
+          <Layer id="amenity-line-glow" type="line" filter={['==', ['geometry-type'], 'LineString']} paint={{ 'line-color': ['get', 'color'], 'line-width': 10, 'line-opacity': 0.12, 'line-blur': 5 }} />
+          <Layer id="amenity-points" type="circle" filter={['==', ['geometry-type'], 'Point']} paint={{ 'circle-color': ['get', 'color'], 'circle-radius': 5, 'circle-opacity': 0.9, 'circle-stroke-width': 1.5, 'circle-stroke-color': ['get', 'color'], 'circle-stroke-opacity': 0.3 }} />
+          <Layer id="amenity-points-glow" type="circle" filter={['==', ['geometry-type'], 'Point']} paint={{ 'circle-color': ['get', 'color'], 'circle-radius': 18, 'circle-opacity': 0.06, 'circle-blur': 1 }} />
         </Source>
 
-        {/* Amenity labels */}
-        <Source id="amenity-labels" type="geojson" data={amenitiesGeoJSON}>
+        <Source id="amenity-labels" type="geojson" data={filteredAmenitiesGeoJSON}>
           <Layer
             id="amenity-label-text"
             type="symbol"
             filter={['any', ['==', ['geometry-type'], 'Point'], ['==', ['geometry-type'], 'Polygon']]}
+            layout={{ 'text-field': ['get', 'name'], 'text-size': 10, 'text-offset': [0, 1.4], 'text-anchor': 'top', 'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'], 'text-allow-overlap': false }}
+            paint={{ 'text-color': ['get', 'color'], 'text-opacity': 0.6, 'text-halo-color': isDark ? '#000000' : '#ffffff', 'text-halo-width': 1.2 }}
+          />
+        </Source>
+
+        {/* ── Search Zones (neighborhood investment zones) ── */}
+        <Source id="search-zones" type="geojson" data={searchZonesGeoJSON}>
+          <Layer
+            id="search-zone-fill"
+            type="fill"
+            paint={{
+              'fill-color': ['get', 'color'],
+              'fill-opacity': isDark ? 0.06 : 0.08,
+            }}
+          />
+          <Layer
+            id="search-zone-stroke"
+            type="line"
+            paint={{
+              'line-color': ['get', 'color'],
+              'line-width': 1.5,
+              'line-opacity': 0.4,
+              'line-dasharray': [4, 2],
+            }}
+          />
+          <Layer
+            id="search-zone-label"
+            type="symbol"
             layout={{
               'text-field': ['get', 'name'],
-              'text-size': 10,
-              'text-offset': [0, 1.4],
-              'text-anchor': 'top',
+              'text-size': 11,
               'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
               'text-allow-overlap': false,
             }}
             paint={{
-              'text-color': ['get', 'color'],
-              'text-opacity': 0.6,
-              'text-halo-color': '#000000',
-              'text-halo-width': 1.2,
+              'text-color': isDark ? '#ff8033' : '#c45a1a',
+              'text-opacity': 0.7,
+              'text-halo-color': isDark ? '#000000' : '#ffffff',
+              'text-halo-width': 1,
             }}
           />
         </Source>
 
-        {/* ── Property Markers ── */}
-        {properties.map((p) => (
+        {/* ── Radius Lines (nearest amenities) ── */}
+        {radiusLinesGeoJSON && (
+          <Source id="radius-lines" type="geojson" data={radiusLinesGeoJSON}>
+            <Layer
+              id="radius-line"
+              type="line"
+              paint={{
+                'line-color': isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.25)',
+                'line-width': 1,
+                'line-dasharray': [4, 4],
+              }}
+            />
+            <Layer
+              id="radius-label"
+              type="symbol"
+              layout={{
+                'symbol-placement': 'line-center',
+                'text-field': ['get', 'distance'],
+                'text-size': 10,
+                'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+              }}
+              paint={{
+                'text-color': isDark ? '#ffffff' : '#1a1a2e',
+                'text-halo-color': isDark ? '#000000' : '#ffffff',
+                'text-halo-width': 1,
+              }}
+            />
+          </Source>
+        )}
+
+        {/* ── Node Boundary Polygons ── */}
+        {nodeBoundariesGeoJSON.features.length > 0 && (
+          <Source id="node-boundaries" type="geojson" data={nodeBoundariesGeoJSON}>
+            <Layer
+              id="node-boundary-fill"
+              type="fill"
+              paint={{
+                'fill-color': ['get', 'color'],
+                'fill-opacity': isDark ? 0.12 : 0.15,
+              }}
+            />
+            <Layer
+              id="node-boundary-stroke"
+              type="line"
+              paint={{
+                'line-color': ['get', 'color'],
+                'line-width': 2,
+                'line-opacity': 0.7,
+              }}
+            />
+            <Layer
+              id="node-boundary-glow"
+              type="line"
+              paint={{
+                'line-color': ['get', 'color'],
+                'line-width': 8,
+                'line-opacity': 0.1,
+                'line-blur': 4,
+              }}
+            />
+          </Source>
+        )}
+
+        {/* ── Node Markers ── */}
+        {filteredNodes.map((n) => (
           <Marker
-            key={p.id}
-            latitude={p.latitude}
-            longitude={p.longitude}
+            key={n.id}
+            latitude={n.latitude}
+            longitude={n.longitude}
             anchor="center"
             onClick={(e) => {
               e.originalEvent.stopPropagation();
-              handlePropertyClick(p);
+              handleNodeClick(n);
             }}
           >
-            <div className="property-marker">
-              <div className="property-marker-inner" />
+            <div className="node-marker" data-typology={n.typology}>
+              <div
+                className="node-marker-inner"
+                style={{
+                  background: NODE_COLORS[n.typology],
+                  boxShadow: `0 0 12px ${NODE_COLORS[n.typology]}80, 0 0 24px ${NODE_COLORS[n.typology]}33`,
+                  borderColor: `${NODE_COLORS[n.typology]}66`,
+                }}
+              />
+              {n.seekingCapital && <span className="node-badge-capital">$</span>}
+              {n.isDistressed && <span className="node-badge-distressed">!</span>}
+              {n.isFreeOffer && <span className="node-badge-free">F</span>}
             </div>
           </Marker>
         ))}
 
-        {/* ── Pin Placement Marker ── */}
-        {pinLocation && (
-          <Marker
-            latitude={pinLocation.latitude}
-            longitude={pinLocation.longitude}
-            anchor="center"
-          >
+        {/* ── Pin Placement ── */}
+        {pinLocation && submissionStep !== 'idle' && (
+          <Marker latitude={pinLocation.latitude} longitude={pinLocation.longitude} anchor="center">
             <div className="placement-marker">
               <div className="placement-marker-inner" />
             </div>
@@ -258,8 +482,21 @@ export default function MapApp() {
         )}
       </Map>
 
-      {/* ── Vignette Overlay ── */}
+      {/* ── Vignette ── */}
       <div className="vignette" />
+
+      {/* ── Theme Toggle ── */}
+      <button
+        onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+        className="theme-toggle"
+        title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+      >
+        {isDark ? (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        ) : (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+        )}
+      </button>
 
       {/* ── Search Bar ── */}
       <form className="search-bar" onSubmit={handleSearch}>
@@ -272,39 +509,176 @@ export default function MapApp() {
         />
       </form>
 
-      {/* ── Pin Placement Instruction ── */}
-      {placingPin && !showSubmission && (
-        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 fade-in">
-          <div className="glass-panel px-6 py-3 font-mono text-xs text-signal-cyan tracking-[0.2em] uppercase">
-            Click map to place pin
+      {/* ── Filter Dropdown ── */}
+      <div className="filter-container">
+        <button
+          onClick={() => setFilterOpen((v) => !v)}
+          className={`filter-toggle ${filterOpen ? 'filter-toggle-active' : ''}`}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" /></svg>
+          <span>FILTER</span>
+          {totalFilters < maxFilters && <span className="filter-badge">{totalFilters}</span>}
+        </button>
+        {filterOpen && (
+          <div className="filter-dropdown fade-in">
+            <div className="filter-section">
+              <p className="filter-section-label">Node Types</p>
+              <div className="filter-chips">
+                {([
+                  { key: 'society' as Typology, label: 'Society', color: NODE_COLORS.society },
+                  { key: 'asset' as Typology, label: 'Asset', color: NODE_COLORS.asset },
+                  { key: 'facility' as Typology, label: 'Facility', color: NODE_COLORS.facility },
+                ]).map((t) => (
+                  <button
+                    key={t.key}
+                    onClick={() => toggleTypology(t.key)}
+                    className={`filter-chip ${activeTypologies.has(t.key) ? 'filter-chip-active' : ''}`}
+                    style={activeTypologies.has(t.key) ? { borderColor: `${t.color}66`, color: t.color } : {}}
+                  >
+                    <span className="filter-chip-dot" style={{ background: activeTypologies.has(t.key) ? t.color : 'rgba(255,255,255,0.15)' }} />
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="filter-divider" />
+            <div className="filter-section">
+              <p className="filter-section-label">Layers</p>
+              <div className="filter-chips">
+                <button onClick={() => setShowParcels((v) => !v)} className={`filter-chip ${showParcels ? 'filter-chip-active' : ''}`} style={showParcels ? { borderColor: 'rgba(34,211,238,0.4)', color: '#22d3ee' } : {}}>
+                  <span className="filter-chip-dot" style={{ background: showParcels ? '#22d3ee' : 'rgba(255,255,255,0.15)' }} />
+                  Parcels
+                </button>
+              </div>
+            </div>
+            <div className="filter-divider" />
+            <div className="filter-section">
+              <p className="filter-section-label">Amenities</p>
+              <div className="filter-chips">
+                {([
+                  { key: 'park', label: 'Parks', color: '#2ee672' },
+                  { key: 'architecture', label: 'Architecture', color: '#b07aff' },
+                  { key: 'transit', label: 'Transit', color: '#22d3ee' },
+                  { key: 'institution', label: 'Institutions', color: '#ff5aad' },
+                ]).map((a) => (
+                  <button key={a.key} onClick={() => toggleAmenity(a.key)} className={`filter-chip ${activeAmenities.has(a.key) ? 'filter-chip-active' : ''}`} style={activeAmenities.has(a.key) ? { borderColor: `${a.color}66`, color: a.color } : {}}>
+                    <span className="filter-chip-dot" style={{ background: activeAmenities.has(a.key) ? a.color : 'rgba(255,255,255,0.15)' }} />
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Typology Selector ── */}
+      {submissionStep === 'select-type' && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center fade-in">
+          <div className="absolute inset-0 bg-black/40" onClick={handleCancel} />
+          <div className="relative glass-panel p-6 w-[340px]">
+            <h3 className="font-mono text-xs tracking-[0.2em] text-text-dim uppercase mb-1">Signal Node</h3>
+            <p className="text-sm text-text-primary mb-5">Select node type</p>
+            <div className="space-y-2.5">
+              {([
+                { key: 'society' as Typology, label: 'Society', desc: 'Community, pop-up city, or base', color: NODE_COLORS.society },
+                { key: 'asset' as Typology, label: 'Asset', desc: 'Land, building, or distressed property', color: NODE_COLORS.asset },
+                { key: 'facility' as Typology, label: 'Facility', desc: 'Coworking, garage, or shared space', color: NODE_COLORS.facility },
+              ]).map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => handleSelectTypology(t.key)}
+                  className="typology-select-btn"
+                  style={{ borderColor: `${t.color}33` }}
+                >
+                  <span className="typology-select-dot" style={{ background: t.color }} />
+                  <div className="text-left">
+                    <span className="text-sm font-medium text-text-bright">{t.label}</span>
+                    <span className="block text-[11px] text-text-dim mt-0.5">{t.desc}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <button onClick={handleCancel} className="w-full mt-4 text-center text-xs text-text-dim font-mono tracking-wider hover:text-text-primary transition-colors cursor-pointer">CANCEL</button>
           </div>
         </div>
       )}
 
-      {/* ── FAB Button ── */}
-      {!showSubmission && !placingPin && (
-        <button onClick={handleFABClick} className="fab-button">
-          <span className="fab-icon">+</span>
-          <span>SIGNAL TERRITORY</span>
+      {/* ── Choose Placement Method ── */}
+      {submissionStep === 'choose-method' && selectedTypology && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center fade-in">
+          <div className="absolute inset-0 bg-black/40" onClick={handleCancel} />
+          <div className="relative glass-panel p-6 w-[340px]">
+            <h3 className="font-mono text-xs tracking-[0.2em] text-text-dim uppercase mb-1">Placement Method</h3>
+            <p className="text-sm text-text-primary mb-5">How do you want to mark this node?</p>
+            <div className="space-y-2.5">
+              <button
+                onClick={handleChoosePin}
+                className="typology-select-btn"
+                style={{ borderColor: `${NODE_COLORS[selectedTypology]}33` }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={NODE_COLORS[selectedTypology]} strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                <div className="text-left">
+                  <span className="text-sm font-medium text-text-bright">Drop Pin</span>
+                  <span className="block text-[11px] text-text-dim mt-0.5">Click the map to place a single point</span>
+                </div>
+              </button>
+              <button
+                onClick={handleChooseDraw}
+                className="typology-select-btn"
+                style={{ borderColor: `${NODE_COLORS[selectedTypology]}33` }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={NODE_COLORS[selectedTypology]} strokeWidth="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+                <div className="text-left">
+                  <span className="text-sm font-medium text-text-bright">Draw Boundary</span>
+                  <span className="block text-[11px] text-text-dim mt-0.5">Click to draw a polygon shape on the map</span>
+                </div>
+              </button>
+            </div>
+            <button onClick={handleCancel} className="w-full mt-4 text-center text-xs text-text-dim font-mono tracking-wider hover:text-text-primary transition-colors cursor-pointer">CANCEL</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Placement / Drawing Instructions ── */}
+      {submissionStep === 'placing' && (
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 fade-in">
+          <div className="glass-panel px-5 py-3">
+            <span className="font-mono text-xs tracking-[0.15em] uppercase" style={{ color: NODE_COLORS[selectedTypology!] }}>
+              Click map to place pin
+            </span>
+          </div>
+        </div>
+      )}
+
+      {submissionStep === 'drawing' && (
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 fade-in">
+          <div className="glass-panel px-5 py-3">
+            <span className="font-mono text-xs tracking-[0.15em] uppercase" style={{ color: NODE_COLORS[selectedTypology!] }}>
+              Click to draw polygon &middot; Double-click to finish
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Cancel ── */}
+      {(submissionStep === 'placing' || submissionStep === 'drawing') && (
+        <button onClick={handleCancel} className="absolute bottom-10 right-8 z-20 glass-panel px-5 py-2.5 font-mono text-xs text-text-dim hover:text-text-primary tracking-wider transition-colors cursor-pointer">
+          ESC &middot; CANCEL
         </button>
       )}
 
-      {/* ── Cancel Placement ── */}
-      {placingPin && !showSubmission && (
-        <button
-          onClick={() => {
-            setPlacingPin(false);
-            setPinLocation(null);
-          }}
-          className="absolute bottom-10 right-8 z-20 glass-panel px-5 py-2.5 font-mono text-xs text-text-dim hover:text-text-primary tracking-wider transition-colors cursor-pointer"
-        >
-          ESC &middot; CANCEL
+      {/* ── FAB ── */}
+      {submissionStep === 'idle' && !selectedNode && (
+        <button onClick={handleFABClick} className="fab-button">
+          <span className="fab-icon">+</span>
+          <span>SIGNAL NODE</span>
         </button>
       )}
 
       {/* ── Status Bar ── */}
       <div className="status-bar">
-        <span className="font-mono text-[10px] text-text-dim tracking-wider">CLOUDTOTERRA v1.0</span>
+        <span className="font-mono text-[10px] text-text-dim tracking-wider">CLOUDTOTERRA v2.0</span>
         <span className="font-mono text-[10px] text-signal-green tracking-wider">&#x25CF; LIVE</span>
         {cursorCoords && (
           <span className="font-mono text-[10px] text-text-dim tracking-wider">
@@ -312,23 +686,27 @@ export default function MapApp() {
           </span>
         )}
         <span className="font-mono text-[10px] text-text-dim tracking-wider">
-          {properties.length} NODE{properties.length !== 1 ? 'S' : ''}
+          {filteredNodes.length} NODE{filteredNodes.length !== 1 ? 'S' : ''}
         </span>
       </div>
 
       {/* ── Detail Drawer ── */}
-      {selectedProperty && (
+      {selectedNode && (
         <DetailDrawer
-          property={selectedProperty}
-          onClose={() => setSelectedProperty(null)}
+          node={selectedNode}
+          nearestAmenities={nearestAmenities}
+          onClose={() => setSelectedNode(null)}
+          isDark={isDark}
         />
       )}
 
       {/* ── Submission Modal ── */}
-      {showSubmission && pinLocation && (
+      {submissionStep === 'form' && pinLocation && selectedTypology && (
         <SubmissionModal
+          typology={selectedTypology}
           location={pinLocation}
-          onClose={handleSubmissionClose}
+          boundary={drawnBoundary}
+          onClose={handleCancel}
           onSuccess={handleSubmissionSuccess}
         />
       )}

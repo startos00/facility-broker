@@ -146,7 +146,7 @@ CREATE INDEX idx_amenities_city ON amenities (city);
 #### Environment Variable
 
 ```
-DATABASE_URL=postgresql://neondb_owner:***@ep-super-brook-ahcg1lcp-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require
+DATABASE_URL=<your-neon-connection-string>
 ```
 
 ---

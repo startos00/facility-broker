@@ -1,11 +1,11 @@
 import { db } from '@/db';
-import { properties } from '@/db/schema';
+import { nodes } from '@/db/schema';
 import { eq, desc, and, gte } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 
 async function hashIP(ip: string): Promise<string> {
   const encoder = new TextEncoder();
-  const data = encoder.encode(ip + 'cloudtoterra-salt-v1');
+  const data = encoder.encode(ip + 'cloudtoterra-salt-v2');
   const hash = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(hash))
     .map((b) => b.toString(16).padStart(2, '0'))
@@ -15,9 +15,9 @@ async function hashIP(ip: string): Promise<string> {
 export async function GET() {
   const results = await db
     .select()
-    .from(properties)
-    .where(eq(properties.isVisible, true))
-    .orderBy(desc(properties.createdAt));
+    .from(nodes)
+    .where(eq(nodes.isVisible, true))
+    .orderBy(desc(nodes.createdAt));
 
   return NextResponse.json(results);
 }
@@ -25,24 +25,21 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const body = await request.json();
 
-  // Honeypot check — bots fill hidden fields
   if (body.website) {
     return NextResponse.json({ success: true });
   }
 
-  const { nodeName, latitude, longitude, typology, priceEstimate, notes, photoUrl } = body;
+  const { nodeName, typology, latitude, longitude } = body;
 
-  // Validate required fields
-  if (!nodeName || latitude == null || longitude == null || !typology) {
+  if (!nodeName || !typology || latitude == null || longitude == null) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
 
-  const validTypologies = ['house', 'land', 'commercial', 'industrial'];
+  const validTypologies = ['society', 'asset', 'facility'];
   if (!validTypologies.includes(typology)) {
     return NextResponse.json({ error: 'Invalid typology' }, { status: 400 });
   }
 
-  // Rate limiting by IP hash
   const ip =
     request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
     request.headers.get('x-real-ip') ||
@@ -51,9 +48,9 @@ export async function POST(request: NextRequest) {
 
   const oneMinuteAgo = new Date(Date.now() - 60_000);
   const recentSubmissions = await db
-    .select({ id: properties.id })
-    .from(properties)
-    .where(and(eq(properties.ipHash, ipHash), gte(properties.createdAt, oneMinuteAgo)));
+    .select({ id: nodes.id })
+    .from(nodes)
+    .where(and(eq(nodes.ipHash, ipHash), gte(nodes.createdAt, oneMinuteAgo)));
 
   if (recentSubmissions.length > 0) {
     return NextResponse.json(
@@ -62,19 +59,33 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const [newProperty] = await db
-    .insert(properties)
+  const [newNode] = await db
+    .insert(nodes)
     .values({
       nodeName,
+      typology,
+      description: body.description || null,
+      photoUrl: body.photoUrl || null,
       latitude: parseFloat(latitude),
       longitude: parseFloat(longitude),
-      typology,
-      priceEstimate: priceEstimate || null,
-      notes: notes || null,
-      photoUrl: photoUrl || null,
+      boundary: body.boundary || null,
+      population: body.population ? parseInt(body.population) : null,
+      vibe: body.vibe || null,
+      nextEventDate: body.nextEventDate || null,
+      acreage: body.acreage || null,
+      price: body.price ? parseInt(body.price) : null,
+      zoning: body.zoning || null,
+      editability: body.editability ? parseInt(body.editability) : null,
+      isDistressed: body.isDistressed ?? false,
+      capacityPax: body.capacityPax ? parseInt(body.capacityPax) : null,
+      internetSpeed: body.internetSpeed || null,
+      availability: body.availability || null,
+      isFreeOffer: body.isFreeOffer ?? false,
+      seekingCapital: body.seekingCapital ?? false,
+      capitalAmount: body.capitalAmount || null,
       ipHash,
     })
     .returning();
 
-  return NextResponse.json(newProperty, { status: 201 });
+  return NextResponse.json(newNode, { status: 201 });
 }

@@ -6,7 +6,8 @@ import { readFileSync } from 'fs';
 
 async function migrate() {
   const sql = neon(process.env.DATABASE_URL!);
-  const migration = readFileSync('drizzle/0000_init.sql', 'utf-8');
+  const migrationFile = process.argv[2] || 'drizzle/0001_v2_nodes.sql';
+  const migration = readFileSync(migrationFile, 'utf-8');
 
   // Split by semicolons and run each statement
   const statements = migration
