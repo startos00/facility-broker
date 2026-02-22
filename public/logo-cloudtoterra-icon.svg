@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <!-- Cloud gradient -->
+    <linearGradient id="cg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#93C5FD" />
+      <stop offset="100%" style="stop-color:#3B82F6" />
+    </linearGradient>
+
+    <!-- Signal arc gradient -->
+    <linearGradient id="sg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#60A5FA" />
+      <stop offset="50%" style="stop-color:#34D399" />
+      <stop offset="100%" style="stop-color:#10B981" />
+    </linearGradient>
+
+    <!-- Terra dot gradient -->
+    <radialGradient id="tg" cx="50%" cy="40%" r="55%">
+      <stop offset="0%" style="stop-color:#34D399" />
+      <stop offset="100%" style="stop-color:#059669" />
+    </radialGradient>
+
+    <!-- Signal glow -->
+    <filter id="gl" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.5" result="b" />
+      <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+    </filter>
+
+    <!-- Cloud shadow -->
+    <filter id="cs" x="-10%" y="-5%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#1E3A5F" flood-opacity="0.3" />
+    </filter>
+
+    <!-- Terra glow -->
+    <filter id="tgl" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="b" />
+      <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+    </filter>
+  </defs>
+
+  <!-- ═══ Cloud Body ═══ -->
+  <g filter="url(#cs)">
+    <path d="
+      M 52 124
+      C 52 105, 60 90, 78 84
+      C 80 64, 95 48, 118 43
+      C 141 38, 160 44, 170 58
+      C 178 52, 194 54, 202 66
+      C 212 61, 226 68, 228 84
+      C 240 87, 247 98, 245 112
+      C 244 128, 232 136, 218 136
+      L 72 136
+      C 56 136, 49 128, 52 124
+      Z
+    " fill="url(#cg)" />
+  </g>
+
+  <!-- ═══ Signal Arcs ═══ -->
+  <g filter="url(#gl)">
+    <!-- Outer arc -->
+    <path d="M 82 148 A 56 56 0 0 0 198 148"
+      fill="none" stroke="url(#sg)" stroke-width="10" stroke-linecap="round" opacity="0.35" />
+
+    <!-- Middle arc -->
+    <path d="M 100 156 A 40 40 0 0 0 180 156"
+      fill="none" stroke="url(#sg)" stroke-width="10" stroke-linecap="round" opacity="0.6" />
+
+    <!-- Inner arc -->
+    <path d="M 117 164 A 25 25 0 0 0 163 164"
+      fill="none" stroke="url(#sg)" stroke-width="10" stroke-linecap="round" opacity="0.85" />
+  </g>
+
+  <!-- ═══ Terra Point ═══ -->
+  <g filter="url(#tgl)">
+    <circle cx="140" cy="196" r="8" fill="url(#tg)" />
+  </g>
+
+  <!-- ═══ Ground Lines ═══ -->
+  <g opacity="0.5">
+    <path d="M 102 224 Q 140 214, 178 224" fill="none" stroke="#10B981" stroke-width="3" stroke-linecap="round" />
+    <path d="M 115 232 Q 140 225, 165 232" fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round" opacity="0.5" />
+  </g>
+</svg>

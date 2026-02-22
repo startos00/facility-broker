@@ -5,10 +5,51 @@ import Map, { Source, Layer, Marker, NavigationControl } from 'react-map-gl/mapb
 import type { MapMouseEvent } from 'react-map-gl/mapbox';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
-import { amenitiesGeoJSON, searchZonesGeoJSON } from '@/lib/buffalo-amenities';
+import { amenitiesGeoJSON as buffaloAmenities, searchZonesGeoJSON as buffaloZones } from '@/lib/buffalo-amenities';
+import { amenitiesGeoJSON as stKildaAmenities, searchZonesGeoJSON as stKildaZones } from '@/lib/st-kilda-amenities';
+import { amenitiesGeoJSON as fremantleAmenities, searchZonesGeoJSON as fremantleZones } from '@/lib/fremantle-amenities';
 import SubmissionModal from './SubmissionModal';
 import DetailDrawer from './DetailDrawer';
+import LensPanel from './LensPanel';
+import PulsePanel from './PulsePanel';
 import DrawControl from './DrawControl';
+
+export type PilotCity = 'buffalo' | 'st-kilda' | 'fremantle';
+
+const PILOT_CITIES: Record<PilotCity, { label: string; lat: number; lng: number; zoom: number }> = {
+  buffalo:   { label: 'Buffalo, NY',       lat: 42.8864,  lng: -78.8784, zoom: 12 },
+  'st-kilda': { label: 'St Kilda, Melbourne', lat: -37.8676, lng: 144.9801, zoom: 14 },
+  fremantle: { label: 'Fremantle, WA',     lat: -32.0569, lng: 115.7439, zoom: 14 },
+};
+
+const CITY_AMENITIES: Record<PilotCity, GeoJSON.FeatureCollection> = {
+  buffalo: buffaloAmenities,
+  'st-kilda': stKildaAmenities,
+  fremantle: fremantleAmenities,
+};
+
+const CITY_ZONES: Record<PilotCity, GeoJSON.FeatureCollection> = {
+  buffalo: buffaloZones,
+  'st-kilda': stKildaZones,
+  fremantle: fremantleZones,
+};
+
+interface GhostSiteData {
+  id: string;
+  latitude: number;
+  longitude: number;
+  abandonmentProbability: string;
+  address: string | null;
+  city: string;
+  lastKnownFunction: string | null;
+  vacancySince: string | null;
+  lotSizeSqm: string | null;
+  ownershipType: string | null;
+  ndviScore: string | null;
+  nightLightScore: string | null;
+  hasBoardedWindows: boolean | null;
+  osmStatus: string | null;
+}
 
 export type Typology = 'society' | 'asset' | 'facility';
 
@@ -83,6 +124,24 @@ export default function MapApp() {
   const [nodes, setNodes] = useState<NodeData[]>([]);
   const [selectedNode, setSelectedNode] = useState<NodeData | null>(null);
 
+  // ── Pilot City ──
+  const [activeCity, setActiveCity] = useState<PilotCity>('buffalo');
+  const amenitiesGeoJSON = CITY_AMENITIES[activeCity];
+  const searchZonesGeoJSON = CITY_ZONES[activeCity];
+
+  // ── CivicPattern: Ghost Sites ──
+  const [ghostSites, setGhostSites] = useState<GhostSiteData[]>([]);
+  const [showGhostSites, setShowGhostSites] = useState(false);
+  const [selectedGhostSite, setSelectedGhostSite] = useState<GhostSiteData | null>(null);
+
+  // ── CivicPattern: Panels ──
+  const [showLens, setShowLens] = useState(false);
+  const [showPulse, setShowPulse] = useState(false);
+  const [neighborhoodAnalysis, setNeighborhoodAnalysis] = useState<Record<string, unknown> | null>(null);
+  const [recommendation, setRecommendation] = useState<Record<string, unknown> | null>(null);
+  const [caseStudies, setCaseStudies] = useState<Record<string, unknown>[]>([]);
+  const [pulseLoading, setPulseLoading] = useState(false);
+
   // ── Filters ──
   const [filterOpen, setFilterOpen] = useState(false);
   const [activeTypologies, setActiveTypologies] = useState<Set<Typology>>(
@@ -123,7 +182,7 @@ export default function MapApp() {
         activeAmenities.has((f.properties as Record<string, string>)?.category ?? ''),
       ),
     }),
-    [activeAmenities],
+    [activeAmenities, amenitiesGeoJSON],
   );
 
   // ── Nearest amenities (radius lines) ──
@@ -143,7 +202,7 @@ export default function MapApp() {
       })
       .sort((a: { distance: number }, b: { distance: number }) => a.distance - b.distance)
       .slice(0, 3);
-  }, [selectedNode]);
+  }, [selectedNode, amenitiesGeoJSON]);
 
   const radiusLinesGeoJSON = useMemo(() => {
     if (!selectedNode || nearestAmenities.length === 0) return null;
@@ -246,7 +305,71 @@ export default function MapApp() {
 
   const handleNodeClick = (node: NodeData) => {
     setSelectedNode(node);
+    setSelectedGhostSite(null);
+    setShowLens(false);
+    setShowPulse(false);
     handleCancel();
+  };
+
+  // ── City Switcher ──
+  const handleCitySwitch = (city: PilotCity) => {
+    setActiveCity(city);
+    const c = PILOT_CITIES[city];
+    setViewState((prev) => ({ ...prev, latitude: c.lat, longitude: c.lng, zoom: c.zoom }));
+    setSelectedNode(null);
+    setSelectedGhostSite(null);
+    setShowLens(false);
+    setShowPulse(false);
+  };
+
+  // ── Ghost Sites ──
+  const fetchGhostSites = useCallback(async () => {
+    try {
+      const cityName = PILOT_CITIES[activeCity].label.split(',')[0];
+      const res = await fetch(`/api/ghost-sites?city=${encodeURIComponent(cityName)}`);
+      const data = await res.json();
+      setGhostSites(data);
+    } catch { /* silent */ }
+  }, [activeCity]);
+
+  useEffect(() => {
+    if (showGhostSites) fetchGhostSites();
+  }, [showGhostSites, fetchGhostSites]);
+
+  const handleGhostSiteClick = (site: GhostSiteData) => {
+    setSelectedGhostSite(site);
+    setSelectedNode(null);
+    setShowLens(true);
+    setShowPulse(false);
+    setNeighborhoodAnalysis(null);
+    setRecommendation(null);
+    setCaseStudies([]);
+  };
+
+  const handleAnalyzeNeighborhood = async () => {
+    if (!selectedGhostSite) return;
+    setShowPulse(true);
+    setPulseLoading(true);
+    try {
+      const res = await fetch('/api/analyze-neighborhood', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ latitude: selectedGhostSite.latitude, longitude: selectedGhostSite.longitude }),
+      });
+      const analysis = await res.json();
+      setNeighborhoodAnalysis(analysis);
+
+      // Auto-trigger recommendation
+      const recRes = await fetch('/api/recommend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ghostSiteId: selectedGhostSite.id }),
+      });
+      const recData = await recRes.json();
+      setRecommendation(recData.recommendation || null);
+      setCaseStudies(recData.caseStudies || []);
+    } catch { /* silent */ }
+    setPulseLoading(false);
   };
 
   const handleSearch = async (e: React.FormEvent) => {
@@ -270,8 +393,8 @@ export default function MapApp() {
     ? 'mapbox://styles/mapbox/dark-v11'
     : 'mapbox://styles/mapbox/light-v11';
 
-  const totalFilters = activeTypologies.size + activeAmenities.size + (showParcels ? 1 : 0);
-  const maxFilters = 3 + 4 + 1;
+  const totalFilters = activeTypologies.size + activeAmenities.size + (showParcels ? 1 : 0) + (showGhostSites ? 1 : 0);
+  const maxFilters = 3 + 4 + 2;
 
   return (
     <div className={`relative h-screen w-screen overflow-hidden ${isDark ? '' : 'light'}`}>
@@ -472,6 +595,34 @@ export default function MapApp() {
           </Marker>
         ))}
 
+        {/* ── Ghost Site Markers ── */}
+        {showGhostSites && ghostSites.map((gs) => (
+          <Marker
+            key={gs.id}
+            latitude={gs.latitude}
+            longitude={gs.longitude}
+            anchor="center"
+            onClick={(e) => {
+              e.originalEvent.stopPropagation();
+              handleGhostSiteClick(gs);
+            }}
+          >
+            <div
+              className="ghost-site-marker"
+              style={{
+                width: '18px',
+                height: '18px',
+                borderRadius: '50%',
+                background: `rgba(248, 113, 113, ${parseFloat(gs.abandonmentProbability)})`,
+                border: '2px solid rgba(248, 113, 113, 0.6)',
+                boxShadow: `0 0 12px rgba(248, 113, 113, ${parseFloat(gs.abandonmentProbability) * 0.5})`,
+                cursor: 'pointer',
+                animation: 'pulse-ring 3s ease-in-out infinite',
+              }}
+            />
+          </Marker>
+        ))}
+
         {/* ── Pin Placement ── */}
         {pinLocation && submissionStep !== 'idle' && (
           <Marker latitude={pinLocation.latitude} longitude={pinLocation.longitude} anchor="center">
@@ -508,6 +659,24 @@ export default function MapApp() {
           onChange={(e) => setSearchQuery(e.target.value)}
         />
       </form>
+
+      {/* ── City Selector ── */}
+      <div className="absolute top-16 left-4 z-20 flex gap-1.5">
+        {(Object.keys(PILOT_CITIES) as PilotCity[]).map((city) => (
+          <button
+            key={city}
+            onClick={() => handleCitySwitch(city)}
+            className={`px-3 py-1.5 rounded font-mono text-[10px] tracking-wider uppercase transition-all cursor-pointer ${
+              activeCity === city
+                ? 'bg-[#22d3ee]/15 text-[#22d3ee] border border-[#22d3ee]/30'
+                : 'bg-black/30 text-[#5a6a80] border border-white/5 hover:border-white/10 hover:text-[#8c95a4]'
+            }`}
+            style={{ backdropFilter: 'blur(8px)' }}
+          >
+            {PILOT_CITIES[city].label}
+          </button>
+        ))}
+      </div>
 
       {/* ── Filter Dropdown ── */}
       <div className="filter-container">
@@ -548,6 +717,10 @@ export default function MapApp() {
                 <button onClick={() => setShowParcels((v) => !v)} className={`filter-chip ${showParcels ? 'filter-chip-active' : ''}`} style={showParcels ? { borderColor: 'rgba(34,211,238,0.4)', color: '#22d3ee' } : {}}>
                   <span className="filter-chip-dot" style={{ background: showParcels ? '#22d3ee' : 'rgba(255,255,255,0.15)' }} />
                   Parcels
+                </button>
+                <button onClick={() => setShowGhostSites((v) => !v)} className={`filter-chip ${showGhostSites ? 'filter-chip-active' : ''}`} style={showGhostSites ? { borderColor: 'rgba(248,113,113,0.4)', color: '#f87171' } : {}}>
+                  <span className="filter-chip-dot" style={{ background: showGhostSites ? '#f87171' : 'rgba(255,255,255,0.15)' }} />
+                  Ghost Sites
                 </button>
               </div>
             </div>
@@ -678,11 +851,11 @@ export default function MapApp() {
 
       {/* ── Status Bar ── */}
       <div className="status-bar">
-        <span className="font-mono text-[10px] text-text-dim tracking-wider">CLOUDTOTERRA v2.0</span>
+        <span className="font-mono text-[10px] text-text-dim tracking-wider">CLOUDTOTERRA v2.1</span>
         <span className="font-mono text-[10px] text-signal-green tracking-wider">&#x25CF; LIVE</span>
         {cursorCoords && (
           <span className="font-mono text-[10px] text-text-dim tracking-wider">
-            {cursorCoords.lat.toFixed(4)}&deg;N&nbsp;&nbsp;{Math.abs(cursorCoords.lng).toFixed(4)}&deg;W
+            {Math.abs(cursorCoords.lat).toFixed(4)}&deg;{cursorCoords.lat >= 0 ? 'N' : 'S'}&nbsp;&nbsp;{Math.abs(cursorCoords.lng).toFixed(4)}&deg;{cursorCoords.lng >= 0 ? 'E' : 'W'}
           </span>
         )}
         <span className="font-mono text-[10px] text-text-dim tracking-wider">
@@ -697,6 +870,26 @@ export default function MapApp() {
           nearestAmenities={nearestAmenities}
           onClose={() => setSelectedNode(null)}
           isDark={isDark}
+        />
+      )}
+
+      {/* ── CivicPattern: Lens Panel (left) ── */}
+      {showLens && selectedGhostSite && (
+        <LensPanel
+          ghostSite={selectedGhostSite}
+          onClose={() => { setShowLens(false); setSelectedGhostSite(null); }}
+          onAnalyzeNeighborhood={handleAnalyzeNeighborhood}
+        />
+      )}
+
+      {/* ── CivicPattern: Pulse Panel (right) ── */}
+      {showPulse && (
+        <PulsePanel
+          analysis={neighborhoodAnalysis as Parameters<typeof PulsePanel>[0]['analysis']}
+          recommendation={recommendation as Parameters<typeof PulsePanel>[0]['recommendation']}
+          caseStudies={(caseStudies || []) as unknown as Parameters<typeof PulsePanel>[0]['caseStudies']}
+          onClose={() => { setShowPulse(false); setNeighborhoodAnalysis(null); setRecommendation(null); setCaseStudies([]); }}
+          isLoading={pulseLoading}
         />
       )}
 

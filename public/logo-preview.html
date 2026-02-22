@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>CloudtoTerra Logo Preview</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 48px;
+      padding: 60px 20px;
+      background: #1a1a2e;
+    }
+    h1 { font-size: 14px; text-transform: uppercase; letter-spacing: 4px; opacity: 0.5; color: #94A3B8; }
+    .row {
+      display: flex;
+      gap: 80px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      padding: 40px;
+      border-radius: 20px;
+    }
+    .card.dark { background: #0F172A; }
+    .card.light { background: #F1F5F9; }
+    .card img { max-width: 280px; }
+    .label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      opacity: 0.5;
+    }
+    .card.dark .label { color: #94A3B8; }
+    .card.light .label { color: #475569; }
+  </style>
+</head>
+<body>
+  <h1>CloudtoTerra Logo Preview</h1>
+
+  <div class="row">
+    <div class="card dark">
+      <img src="logo-cloudtoterra.svg" alt="Full logo on dark">
+      <span class="label">Full Logo — Dark</span>
+    </div>
+    <div class="card light">
+      <img src="logo-cloudtoterra.svg" alt="Full logo on light">
+      <span class="label">Full Logo — Light</span>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="card dark">
+      <img src="logo-cloudtoterra-icon.svg" alt="Icon on dark" style="max-width: 160px;">
+      <span class="label">Icon — Dark</span>
+    </div>
+    <div class="card light">
+      <img src="logo-cloudtoterra-icon.svg" alt="Icon on light" style="max-width: 160px;">
+      <span class="label">Icon — Light</span>
+    </div>
+  </div>
+</body>
+</html>
