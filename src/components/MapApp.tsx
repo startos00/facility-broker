@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Map, { Source, Layer, Marker, NavigationControl, Popup } from 'react-map-gl/mapbox';
 import type { MapMouseEvent } from 'react-map-gl/mapbox';
 import mapboxgl from 'mapbox-gl';
@@ -200,6 +200,53 @@ export default function MapApp() {
   const [pinLocation, setPinLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [drawnBoundary, setDrawnBoundary] = useState<GeoJSON.Polygon | null>(null);
 
+  // ── 3D Model Interaction ──
+  const DEFAULT_MODEL_LNGLAT: [number, number] = [144.97985676118213, -37.8626556260632];
+  const mapInstanceRef = useRef<mapboxgl.Map | null>(null);
+  const modelLngLatRef = useRef<[number, number]>([...DEFAULT_MODEL_LNGLAT]);
+  const modelBearingRef = useRef(0);
+  const modelDragStateRef = useRef<{
+    active: boolean;
+    mode: 'drag' | 'rotate';
+    startScreenX: number;
+    startScreenY: number;
+    startLngLat: [number, number];
+    startBearing: number;
+  } | null>(null);
+  const justDraggedRef = useRef(false);
+  const [modelInteracting, setModelInteracting] = useState<'drag' | 'rotate' | null>(null);
+  const [modelHovered, setModelHovered] = useState(false);
+  const [modelRotateMode, setModelRotateMode] = useState(false);
+  const rotateModeStartBearingRef = useRef(0);
+  const rotateModeStartScreenXRef = useRef(0);
+  const SACRED_HEART_MODEL_ID = 'sacred-heart-church';
+
+  // Load saved model placement on mount
+  useEffect(() => {
+    fetch(`/api/model-placements?modelId=${SACRED_HEART_MODEL_ID}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.longitude != null && data?.latitude != null) {
+          modelLngLatRef.current = [data.longitude, data.latitude];
+          modelBearingRef.current = data.bearing ?? 0;
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const saveModelPlacement = useCallback(() => {
+    fetch('/api/model-placements', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modelId: SACRED_HEART_MODEL_ID,
+        longitude: modelLngLatRef.current[0],
+        latitude: modelLngLatRef.current[1],
+        bearing: modelBearingRef.current,
+      }),
+    }).catch(() => {});
+  }, []);
+
   // ── Fetch nodes ──
   useEffect(() => {
     fetchNodes();
@@ -345,22 +392,10 @@ export default function MapApp() {
 
   const handleMapLoad = useCallback((event: { target: any }) => {
     const map = event.target;
+    mapInstanceRef.current = map;
 
-    // Georeference: position the model on the map
-    const modelOrigin: [number, number] = [144.97985676118213, -37.8626556260632];
-    const modelAltitude = 0;
-    const modelRotate = [Math.PI / 2, 0, 0];
-    const modelAsMercatorCoordinate = mapboxgl.MercatorCoordinate.fromLngLat(modelOrigin, modelAltitude);
-
-    const modelTransform = {
-      translateX: modelAsMercatorCoordinate.x,
-      translateY: modelAsMercatorCoordinate.y,
-      translateZ: modelAsMercatorCoordinate.z,
-      rotateX: modelRotate[0],
-      rotateY: modelRotate[1],
-      rotateZ: modelRotate[2],
-      scale: modelAsMercatorCoordinate.meterInMercatorCoordinateUnits(),
-    };
+    // Base rotation to stand the model upright (Rhino Y-up → Mapbox Z-up)
+    const BASE_ROTATE_X = Math.PI / 2;
 
     // Custom layer following the official Mapbox "Add a 3D model" pattern
     // https://docs.mapbox.com/mapbox-gl-js/example/add-3d-model/
@@ -396,17 +431,20 @@ export default function MapApp() {
       },
 
       render(this: any, gl: WebGL2RenderingContext, matrix: number[]) {
-        const rotationX = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1, 0, 0), modelTransform.rotateX);
-        const rotationY = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0, 1, 0), modelTransform.rotateY);
-        const rotationZ = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0, 0, 1), modelTransform.rotateZ);
+        // Recompute position from refs each frame (enables drag/rotate)
+        const mc = mapboxgl.MercatorCoordinate.fromLngLat(modelLngLatRef.current, 0);
+        const scale = mc.meterInMercatorCoordinateUnits();
+        const bearingRad = (modelBearingRef.current * Math.PI) / 180;
+
+        const rotationX = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1, 0, 0), BASE_ROTATE_X);
+        const rotationBearing = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0, 1, 0), bearingRad);
 
         const m = new THREE.Matrix4().fromArray(matrix);
         const l = new THREE.Matrix4()
-          .makeTranslation(modelTransform.translateX, modelTransform.translateY, modelTransform.translateZ)
-          .scale(new THREE.Vector3(modelTransform.scale, -modelTransform.scale, modelTransform.scale))
+          .makeTranslation(mc.x, mc.y, mc.z)
+          .scale(new THREE.Vector3(scale, -scale, scale))
           .multiply(rotationX)
-          .multiply(rotationY)
-          .multiply(rotationZ);
+          .multiply(rotationBearing);
 
         this.camera.projectionMatrix = m.multiply(l);
         this.renderer.resetState();
@@ -417,6 +455,129 @@ export default function MapApp() {
 
     map.addLayer(customLayer as mapboxgl.CustomLayerInterface);
   }, []);
+
+  // ── 3D Model Drag / Rotate ──
+  const MODEL_HIT_RADIUS_PX = 40;
+
+  const isNearModel = (map: mapboxgl.Map, point: { x: number; y: number }) => {
+    const modelScreen = map.project(modelLngLatRef.current as mapboxgl.LngLatLike);
+    const dx = point.x - modelScreen.x;
+    const dy = point.y - modelScreen.y;
+    return dx * dx + dy * dy <= MODEL_HIT_RADIUS_PX * MODEL_HIT_RADIUS_PX;
+  };
+
+  const handleModelMouseDown = useCallback(
+    (e: MapMouseEvent) => {
+      const map = mapInstanceRef.current;
+      if (!map) return;
+      if (submissionStep === 'placing' || submissionStep === 'drawing') return;
+      if (e.originalEvent.button !== 0) return;
+      if (modelRotateMode) return; // rotate mode uses mousemove directly, not drag
+      if (!isNearModel(map, e.point)) return;
+
+      modelDragStateRef.current = {
+        active: true,
+        mode: 'drag',
+        startScreenX: e.point.x,
+        startScreenY: e.point.y,
+        startLngLat: [...modelLngLatRef.current] as [number, number],
+        startBearing: modelBearingRef.current,
+      };
+
+      setModelInteracting('drag');
+      map.dragPan.disable();
+      e.originalEvent.preventDefault();
+
+      // Handle mouse-up outside the canvas
+      const handleGlobalMouseUp = () => {
+        if (modelDragStateRef.current?.active) {
+          justDraggedRef.current = true;
+          requestAnimationFrame(() => { justDraggedRef.current = false; });
+          modelDragStateRef.current = null;
+          setModelInteracting(null);
+          mapInstanceRef.current?.dragPan.enable();
+        }
+        window.removeEventListener('mouseup', handleGlobalMouseUp);
+      };
+      window.addEventListener('mouseup', handleGlobalMouseUp);
+    },
+    [submissionStep, modelRotateMode],
+  );
+
+  const handleModelDblClick = useCallback(
+    (e: MapMouseEvent) => {
+      const map = mapInstanceRef.current;
+      if (!map) return;
+      if (submissionStep === 'placing' || submissionStep === 'drawing') return;
+
+      if (modelRotateMode) {
+        // Exit rotate mode on any double-click
+        setModelRotateMode(false);
+        setModelInteracting(null);
+        map.dragPan.enable();
+        saveModelPlacement();
+        return;
+      }
+
+      if (!isNearModel(map, e.point)) return;
+
+      // Enter rotate mode
+      e.originalEvent.preventDefault();
+      e.originalEvent.stopPropagation();
+      rotateModeStartBearingRef.current = modelBearingRef.current;
+      rotateModeStartScreenXRef.current = e.point.x;
+      setModelRotateMode(true);
+      setModelInteracting('rotate');
+      map.dragPan.disable();
+    },
+    [submissionStep, modelRotateMode, saveModelPlacement],
+  );
+
+  const handleModelMouseMove = useCallback((e: MapMouseEvent) => {
+    // Handle rotate mode (free mouse movement, no button held)
+    if (modelRotateMode) {
+      const dx = e.point.x - rotateModeStartScreenXRef.current;
+      modelBearingRef.current = rotateModeStartBearingRef.current + dx * 0.5;
+      return;
+    }
+
+    // Handle drag mode
+    const map = mapInstanceRef.current;
+    const drag = modelDragStateRef.current;
+    if (!map || !drag?.active) return;
+
+    const startGeo = map.unproject([drag.startScreenX, drag.startScreenY]);
+    const currentGeo = map.unproject([e.point.x, e.point.y]);
+    modelLngLatRef.current = [
+      drag.startLngLat[0] + (currentGeo.lng - startGeo.lng),
+      drag.startLngLat[1] + (currentGeo.lat - startGeo.lat),
+    ];
+  }, [modelRotateMode]);
+
+  const handleModelMouseUp = useCallback(() => {
+    if (!modelDragStateRef.current?.active) return;
+    justDraggedRef.current = true;
+    requestAnimationFrame(() => { justDraggedRef.current = false; });
+    modelDragStateRef.current = null;
+    setModelInteracting(null);
+    mapInstanceRef.current?.dragPan.enable();
+    saveModelPlacement();
+  }, [saveModelPlacement]);
+
+  // Exit rotate mode on Escape key
+  useEffect(() => {
+    if (!modelRotateMode) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setModelRotateMode(false);
+        setModelInteracting(null);
+        mapInstanceRef.current?.dragPan.enable();
+        saveModelPlacement();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [modelRotateMode]);
 
   const handleNodeClick = (node: NodeData) => {
     setSelectedNode(node);
@@ -436,6 +597,11 @@ export default function MapApp() {
     setSelectedArchiveEntry(null);
     setShowLens(false);
     setShowPulse(false);
+    // Reset 3D model to default when returning to St Kilda
+    if (city === 'st-kilda') {
+      modelLngLatRef.current = [...DEFAULT_MODEL_LNGLAT];
+      modelBearingRef.current = 0;
+    }
   };
 
   // ── Ghost Sites ──
@@ -588,7 +754,30 @@ export default function MapApp() {
         {...viewState}
         onMove={(e) => setViewState(e.viewState)}
         onLoad={handleMapLoad}
+        onMouseDown={handleModelMouseDown}
+        onMouseUp={handleModelMouseUp}
+        onDblClick={handleModelDblClick}
+        onMouseMove={(e) => {
+          handleModelMouseMove(e);
+          if (!modelDragStateRef.current?.active && !modelRotateMode) {
+            setCursorCoords({ lat: e.lngLat.lat, lng: e.lngLat.lng });
+            if (mapInstanceRef.current) {
+              setModelHovered(isNearModel(mapInstanceRef.current, e.point));
+            }
+          } else {
+            setCursorCoords({ lat: e.lngLat.lat, lng: e.lngLat.lng });
+          }
+        }}
         onClick={(e) => {
+          if (justDraggedRef.current) { justDraggedRef.current = false; return; }
+          // Single click exits rotate mode
+          if (modelRotateMode) {
+            setModelRotateMode(false);
+            setModelInteracting(null);
+            mapInstanceRef.current?.dragPan.enable();
+            saveModelPlacement();
+            return;
+          }
           setContextMenu(null);
           if (e.features?.length && e.features[0].layer?.id === 'amenity-points') {
             handleAmenityClick(e as MapMouseEvent);
@@ -597,11 +786,35 @@ export default function MapApp() {
             handleMapClick(e);
           }
         }}
-        onContextMenu={handleContextMenu}
-        onMouseMove={(e) => setCursorCoords({ lat: e.lngLat.lat, lng: e.lngLat.lng })}
+        onContextMenu={(e) => {
+          if (modelRotateMode) {
+            setModelRotateMode(false);
+            setModelInteracting(null);
+            mapInstanceRef.current?.dragPan.enable();
+            saveModelPlacement();
+            return;
+          }
+          if (modelDragStateRef.current?.active) {
+            modelDragStateRef.current = null;
+            setModelInteracting(null);
+            mapInstanceRef.current?.dragPan.enable();
+            return;
+          }
+          handleContextMenu(e);
+        }}
         mapStyle={mapStyle}
         interactiveLayerIds={['amenity-points']}
-        cursor={submissionStep === 'placing' ? 'crosshair' : 'grab'}
+        cursor={
+          submissionStep === 'placing'
+            ? 'crosshair'
+            : modelInteracting === 'rotate'
+              ? 'ew-resize'
+              : modelInteracting === 'drag'
+                ? 'grabbing'
+                : modelHovered
+                  ? 'pointer'
+                  : 'grab'
+        }
         style={{ width: '100%', height: '100%' }}
       >
         <NavigationControl position="top-right" showCompass={false} />

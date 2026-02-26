@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, doublePrecision, text, timestamp, boolean, jsonb, integer, date, index, decimal } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, doublePrecision, text, timestamp, boolean, jsonb, integer, date, index, decimal, uniqueIndex } from 'drizzle-orm/pg-core';
 
 export const nodes = pgTable('nodes', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -206,4 +206,17 @@ export const rawIngestion = pgTable('raw_ingestion', {
 }, (table) => [
   index('idx_ingestion_status').on(table.status, table.ingestedAt),
   index('idx_ingestion_source').on(table.source, table.sourceId),
+]);
+
+// ═══ 3D Model Placements ═══
+
+export const modelPlacements = pgTable('model_placements', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  modelId: varchar('model_id', { length: 100 }).notNull(),
+  longitude: doublePrecision('longitude').notNull(),
+  latitude: doublePrecision('latitude').notNull(),
+  bearing: doublePrecision('bearing').default(0).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('idx_model_placements_model_id').on(table.modelId),
 ]);
