@@ -1,13 +1,18 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import Map, { Source, Layer, Marker, NavigationControl } from 'react-map-gl/mapbox';
+import Map, { Source, Layer, Marker, NavigationControl, Popup } from 'react-map-gl/mapbox';
 import type { MapMouseEvent } from 'react-map-gl/mapbox';
+import mapboxgl from 'mapbox-gl';
+import * as THREE from 'three';
+// @ts-ignore
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
 import { amenitiesGeoJSON as buffaloAmenities, searchZonesGeoJSON as buffaloZones } from '@/lib/buffalo-amenities';
 import { amenitiesGeoJSON as stKildaAmenities, searchZonesGeoJSON as stKildaZones } from '@/lib/st-kilda-amenities';
 import { amenitiesGeoJSON as fremantleAmenities, searchZonesGeoJSON as fremantleZones } from '@/lib/fremantle-amenities';
+import { stKildaClipGeoJSON } from '@/lib/st-kilda-clip';
 import SubmissionModal from './SubmissionModal';
 import DetailDrawer from './DetailDrawer';
 import LensPanel from './LensPanel';
@@ -49,6 +54,27 @@ interface GhostSiteData {
   nightLightScore: string | null;
   hasBoardedWindows: boolean | null;
   osmStatus: string | null;
+}
+
+interface ArchiveEntryData {
+  id: string;
+  name: string;
+  city: string;
+  country: string;
+  latitude: number;
+  longitude: number;
+  typologyTags: string[];
+  originalFunction: string | null;
+  currentFunction: string | null;
+  isConversion: boolean;
+  floorAreaSqm: string | null;
+  publicPrivateRatio: string | null;
+  floorCount: number | null;
+  yearBuilt: number | null;
+  yearConverted: number | null;
+  digitalFootprintScore: number | null;
+  activationScore: number | null;
+  photoUrls: string[] | null;
 }
 
 export type Typology = 'society' | 'asset' | 'facility';
@@ -134,6 +160,20 @@ export default function MapApp() {
   const [showGhostSites, setShowGhostSites] = useState(false);
   const [selectedGhostSite, setSelectedGhostSite] = useState<GhostSiteData | null>(null);
 
+  // ── CivicPattern: Archive Entries ──
+  const [archiveEntries, setArchiveEntries] = useState<ArchiveEntryData[]>([]);
+  const [showArchive, setShowArchive] = useState(false);
+  const [selectedArchiveEntry, setSelectedArchiveEntry] = useState<ArchiveEntryData | null>(null);
+
+  // ── Amenity Popup ──
+  const [selectedAmenity, setSelectedAmenity] = useState<{
+    name: string; description: string; category: string; color: string; photoUrl?: string;
+    lng: number; lat: number;
+  } | null>(null);
+
+  // ── CivicPattern: Context Menu ──
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; lat: number; lng: number } | null>(null);
+
   // ── CivicPattern: Panels ──
   const [showLens, setShowLens] = useState(false);
   const [showPulse, setShowPulse] = useState(false);
@@ -148,7 +188,7 @@ export default function MapApp() {
     new Set(['society', 'asset', 'facility']),
   );
   const [activeAmenities, setActiveAmenities] = useState<Set<string>>(
-    new Set(['park', 'architecture', 'transit', 'institution']),
+    new Set(['park', 'architecture', 'transit', 'institution', 'faith', 'housing']),
   );
   const [showParcels, setShowParcels] = useState(true);
 
@@ -303,6 +343,81 @@ export default function MapApp() {
     fetchNodes();
   };
 
+  const handleMapLoad = useCallback((event: { target: any }) => {
+    const map = event.target;
+
+    // Georeference: position the model on the map
+    const modelOrigin: [number, number] = [144.97985676118213, -37.8626556260632];
+    const modelAltitude = 0;
+    const modelRotate = [Math.PI / 2, 0, 0];
+    const modelAsMercatorCoordinate = mapboxgl.MercatorCoordinate.fromLngLat(modelOrigin, modelAltitude);
+
+    const modelTransform = {
+      translateX: modelAsMercatorCoordinate.x,
+      translateY: modelAsMercatorCoordinate.y,
+      translateZ: modelAsMercatorCoordinate.z,
+      rotateX: modelRotate[0],
+      rotateY: modelRotate[1],
+      rotateZ: modelRotate[2],
+      scale: modelAsMercatorCoordinate.meterInMercatorCoordinateUnits(),
+    };
+
+    // Custom layer following the official Mapbox "Add a 3D model" pattern
+    // https://docs.mapbox.com/mapbox-gl-js/example/add-3d-model/
+    const customLayer = {
+      id: 'sacred-heart-church-model',
+      type: 'custom',
+      renderingMode: '3d',
+
+      onAdd(this: any, map: mapboxgl.Map, gl: WebGL2RenderingContext) {
+        this.camera = new THREE.Camera();
+        this.scene = new THREE.Scene();
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff);
+        directionalLight.position.set(0, -70, 100).normalize();
+        this.scene.add(directionalLight);
+
+        const directionalLight2 = new THREE.DirectionalLight(0xffffff);
+        directionalLight2.position.set(0, 70, 100).normalize();
+        this.scene.add(directionalLight2);
+
+        const loader = new GLTFLoader();
+        loader.load('/models/sacred-heart/church_v3.glb', (gltf: any) => {
+          this.scene.add(gltf.scene);
+        });
+
+        this.map = map;
+        this.renderer = new THREE.WebGLRenderer({
+          canvas: map.getCanvas(),
+          context: gl,
+          antialias: true,
+        });
+        this.renderer.autoClear = false;
+      },
+
+      render(this: any, gl: WebGL2RenderingContext, matrix: number[]) {
+        const rotationX = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1, 0, 0), modelTransform.rotateX);
+        const rotationY = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0, 1, 0), modelTransform.rotateY);
+        const rotationZ = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0, 0, 1), modelTransform.rotateZ);
+
+        const m = new THREE.Matrix4().fromArray(matrix);
+        const l = new THREE.Matrix4()
+          .makeTranslation(modelTransform.translateX, modelTransform.translateY, modelTransform.translateZ)
+          .scale(new THREE.Vector3(modelTransform.scale, -modelTransform.scale, modelTransform.scale))
+          .multiply(rotationX)
+          .multiply(rotationY)
+          .multiply(rotationZ);
+
+        this.camera.projectionMatrix = m.multiply(l);
+        this.renderer.resetState();
+        this.renderer.render(this.scene, this.camera);
+        this.map.triggerRepaint();
+      },
+    };
+
+    map.addLayer(customLayer as mapboxgl.CustomLayerInterface);
+  }, []);
+
   const handleNodeClick = (node: NodeData) => {
     setSelectedNode(node);
     setSelectedGhostSite(null);
@@ -318,6 +433,7 @@ export default function MapApp() {
     setViewState((prev) => ({ ...prev, latitude: c.lat, longitude: c.lng, zoom: c.zoom }));
     setSelectedNode(null);
     setSelectedGhostSite(null);
+    setSelectedArchiveEntry(null);
     setShowLens(false);
     setShowPulse(false);
   };
@@ -372,6 +488,54 @@ export default function MapApp() {
     setPulseLoading(false);
   };
 
+  // ── Right-Click: Analyze This Area ──
+  const handleContextMenu = useCallback((e: MapMouseEvent) => {
+    e.originalEvent.preventDefault();
+    setContextMenu({ x: e.point.x, y: e.point.y, lat: e.lngLat.lat, lng: e.lngLat.lng });
+  }, []);
+
+  const handleAnalyzeArea = async (lat: number, lng: number) => {
+    setContextMenu(null);
+    setSelectedNode(null);
+    setSelectedGhostSite(null);
+    setSelectedArchiveEntry(null);
+    setShowLens(false);
+    setShowPulse(true);
+    setPulseLoading(true);
+    try {
+      const res = await fetch('/api/analyze-neighborhood', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ latitude: lat, longitude: lng }),
+      });
+      const analysis = await res.json();
+      setNeighborhoodAnalysis(analysis);
+    } catch { /* silent */ }
+    setPulseLoading(false);
+  };
+
+  // ── Archive Entries ──
+  const fetchArchiveEntries = useCallback(async () => {
+    try {
+      const cityName = PILOT_CITIES[activeCity].label.split(',')[0];
+      const res = await fetch(`/api/archive?city=${encodeURIComponent(cityName)}&limit=100`);
+      const data = await res.json();
+      setArchiveEntries(Array.isArray(data) ? data : []);
+    } catch { /* silent */ }
+  }, [activeCity]);
+
+  useEffect(() => {
+    if (showArchive) fetchArchiveEntries();
+  }, [showArchive, fetchArchiveEntries]);
+
+  const handleArchiveEntryClick = (entry: ArchiveEntryData) => {
+    setSelectedArchiveEntry(entry);
+    setSelectedNode(null);
+    setSelectedGhostSite(null);
+    setShowLens(true);
+    setShowPulse(false);
+  };
+
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
@@ -389,12 +553,33 @@ export default function MapApp() {
     }
   };
 
+  // ── Amenity click handler ──
+  const handleAmenityClick = useCallback((e: MapMouseEvent) => {
+    const feature = e.features?.[0];
+    if (!feature || !feature.properties) return;
+    const props = feature.properties;
+    const geom = feature.geometry;
+    let lng = e.lngLat.lng;
+    let lat = e.lngLat.lat;
+    if (geom.type === 'Point') {
+      [lng, lat] = (geom as GeoJSON.Point).coordinates;
+    }
+    setSelectedAmenity({
+      name: props.name,
+      description: props.description,
+      category: props.category,
+      color: props.color,
+      photoUrl: props.photoUrl || undefined,
+      lng, lat,
+    });
+  }, []);
+
   const mapStyle = isDark
     ? 'mapbox://styles/mapbox/dark-v11'
     : 'mapbox://styles/mapbox/light-v11';
 
-  const totalFilters = activeTypologies.size + activeAmenities.size + (showParcels ? 1 : 0) + (showGhostSites ? 1 : 0);
-  const maxFilters = 3 + 4 + 2;
+  const totalFilters = activeTypologies.size + activeAmenities.size + (showParcels ? 1 : 0) + (showGhostSites ? 1 : 0) + (showArchive ? 1 : 0);
+  const maxFilters = 3 + 6 + 3;
 
   return (
     <div className={`relative h-screen w-screen overflow-hidden ${isDark ? '' : 'light'}`}>
@@ -402,9 +587,20 @@ export default function MapApp() {
         mapboxAccessToken={MAPBOX_TOKEN}
         {...viewState}
         onMove={(e) => setViewState(e.viewState)}
-        onClick={handleMapClick}
+        onLoad={handleMapLoad}
+        onClick={(e) => {
+          setContextMenu(null);
+          if (e.features?.length && e.features[0].layer?.id === 'amenity-points') {
+            handleAmenityClick(e as MapMouseEvent);
+          } else {
+            setSelectedAmenity(null);
+            handleMapClick(e);
+          }
+        }}
+        onContextMenu={handleContextMenu}
         onMouseMove={(e) => setCursorCoords({ lat: e.lngLat.lat, lng: e.lngLat.lng })}
         mapStyle={mapStyle}
+        interactiveLayerIds={['amenity-points']}
         cursor={submissionStep === 'placing' ? 'crosshair' : 'grab'}
         style={{ width: '100%', height: '100%' }}
       >
@@ -440,6 +636,19 @@ export default function MapApp() {
               minzoom={14}
               paint={{
                 'fill-color': isDark ? 'rgba(34, 211, 238, 0.03)' : 'rgba(59, 130, 246, 0.04)',
+              }}
+            />
+          </Source>
+        )}
+
+        {/* ── Clip Layers (Remove default buildings) ── */}
+        {activeCity === 'st-kilda' && (
+          <Source id="st-kilda-clip" type="geojson" data={stKildaClipGeoJSON}>
+            <Layer
+              id="st-kilda-clip-layer"
+              type="clip"
+              layout={{
+                'clip-layer-types': ['symbol', 'model'],
               }}
             />
           </Source>
@@ -623,6 +832,30 @@ export default function MapApp() {
           </Marker>
         ))}
 
+        {/* ── Archive Entry Markers ── */}
+        {showArchive && archiveEntries.map((ae) => (
+          <Marker
+            key={ae.id}
+            latitude={ae.latitude}
+            longitude={ae.longitude}
+            anchor="center"
+            onClick={(e) => {
+              e.originalEvent.stopPropagation();
+              handleArchiveEntryClick(ae);
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" style={{ cursor: 'pointer', filter: 'drop-shadow(0 0 6px rgba(255, 208, 38, 0.5))' }}>
+              <polygon
+                points="10,1 13,7 19,8 14.5,12.5 16,19 10,15.5 4,19 5.5,12.5 1,8 7,7"
+                fill={ae.isConversion ? '#b07aff' : '#ffd026'}
+                stroke={ae.isConversion ? '#b07aff' : '#ffd026'}
+                strokeWidth="0.5"
+                opacity="0.9"
+              />
+            </svg>
+          </Marker>
+        ))}
+
         {/* ── Pin Placement ── */}
         {pinLocation && submissionStep !== 'idle' && (
           <Marker latitude={pinLocation.latitude} longitude={pinLocation.longitude} anchor="center">
@@ -631,10 +864,67 @@ export default function MapApp() {
             </div>
           </Marker>
         )}
+
+        {/* ── Amenity Popup ── */}
+        {selectedAmenity && (
+          <Popup
+            latitude={selectedAmenity.lat}
+            longitude={selectedAmenity.lng}
+            anchor="bottom"
+            onClose={() => setSelectedAmenity(null)}
+            closeOnClick={false}
+            maxWidth="320px"
+            className="amenity-popup"
+          >
+            <div style={{ background: isDark ? '#0a0e1a' : '#ffffff', borderRadius: '8px', overflow: 'hidden', minWidth: '260px' }}>
+              {selectedAmenity.photoUrl && (
+                <div style={{ width: '100%', height: '160px', overflow: 'hidden' }}>
+                  <img
+                    src={selectedAmenity.photoUrl}
+                    alt={selectedAmenity.name}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                </div>
+              )}
+              <div style={{ padding: '12px 14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: selectedAmenity.color, flexShrink: 0 }} />
+                  <span style={{ fontFamily: 'monospace', fontSize: '9px', letterSpacing: '0.15em', textTransform: 'uppercase' as const, color: selectedAmenity.color }}>
+                    {selectedAmenity.category}
+                  </span>
+                </div>
+                <h3 style={{ fontSize: '14px', fontWeight: 600, color: isDark ? '#e8eaf0' : '#1a1a2e', margin: '0 0 4px 0' }}>
+                  {selectedAmenity.name}
+                </h3>
+                <p style={{ fontSize: '12px', lineHeight: '1.5', color: isDark ? '#8c95a4' : '#555', margin: 0 }}>
+                  {selectedAmenity.description}
+                </p>
+              </div>
+            </div>
+          </Popup>
+        )}
       </Map>
 
       {/* ── Vignette ── */}
       <div className="vignette" />
+
+      {/* ── Context Menu ── */}
+      {contextMenu && (
+        <div
+          className="absolute z-40 fade-in"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <div className="glass-panel py-1 min-w-[180px]">
+            <button
+              onClick={() => handleAnalyzeArea(contextMenu.lat, contextMenu.lng)}
+              className="w-full px-4 py-2.5 text-left font-mono text-[10px] tracking-[0.1em] uppercase text-[#22d3ee] hover:bg-white/5 transition-colors cursor-pointer flex items-center gap-2"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              Analyze This Area
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Theme Toggle ── */}
       <button
@@ -722,6 +1012,10 @@ export default function MapApp() {
                   <span className="filter-chip-dot" style={{ background: showGhostSites ? '#f87171' : 'rgba(255,255,255,0.15)' }} />
                   Ghost Sites
                 </button>
+                <button onClick={() => setShowArchive((v) => !v)} className={`filter-chip ${showArchive ? 'filter-chip-active' : ''}`} style={showArchive ? { borderColor: 'rgba(255,208,38,0.4)', color: '#ffd026' } : {}}>
+                  <span className="filter-chip-dot" style={{ background: showArchive ? '#ffd026' : 'rgba(255,255,255,0.15)' }} />
+                  Archive
+                </button>
               </div>
             </div>
             <div className="filter-divider" />
@@ -733,6 +1027,8 @@ export default function MapApp() {
                   { key: 'architecture', label: 'Architecture', color: '#b07aff' },
                   { key: 'transit', label: 'Transit', color: '#22d3ee' },
                   { key: 'institution', label: 'Institutions', color: '#ff5aad' },
+                  { key: 'faith', label: 'Faith', color: '#e8a838' },
+                  { key: 'housing', label: 'Housing', color: '#8b95a4' },
                 ]).map((a) => (
                   <button key={a.key} onClick={() => toggleAmenity(a.key)} className={`filter-chip ${activeAmenities.has(a.key) ? 'filter-chip-active' : ''}`} style={activeAmenities.has(a.key) ? { borderColor: `${a.color}66`, color: a.color } : {}}>
                     <span className="filter-chip-dot" style={{ background: activeAmenities.has(a.key) ? a.color : 'rgba(255,255,255,0.15)' }} />
@@ -874,11 +1170,12 @@ export default function MapApp() {
       )}
 
       {/* ── CivicPattern: Lens Panel (left) ── */}
-      {showLens && selectedGhostSite && (
+      {showLens && (selectedGhostSite || selectedArchiveEntry) && (
         <LensPanel
           ghostSite={selectedGhostSite}
-          onClose={() => { setShowLens(false); setSelectedGhostSite(null); }}
-          onAnalyzeNeighborhood={handleAnalyzeNeighborhood}
+          archiveEntry={selectedArchiveEntry as Parameters<typeof LensPanel>[0]['archiveEntry']}
+          onClose={() => { setShowLens(false); setSelectedGhostSite(null); setSelectedArchiveEntry(null); }}
+          onAnalyzeNeighborhood={selectedGhostSite ? handleAnalyzeNeighborhood : undefined}
         />
       )}
 

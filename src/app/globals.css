@@ -1,6 +1,8 @@
 @import "tailwindcss";
+@import "threebox-plugin/dist/threebox.css";
 
 @theme {
+  
   --color-void: #04060b;
   --color-surface: #0c1018;
   --color-text-primary: #d4dce8;
@@ -144,6 +146,43 @@ body.map-view {
   border-radius: 50%;
   pointer-events: none;
   animation: ring-expand 1.5s ease-out infinite;
+}
+
+/* ── Amenity Popup ── */
+
+.amenity-popup .mapboxgl-popup-content {
+  background: transparent !important;
+  padding: 0 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+  overflow: hidden;
+}
+
+.amenity-popup .mapboxgl-popup-tip {
+  border-top-color: var(--color-bg-primary, #0a0e1a) !important;
+}
+
+.light .amenity-popup .mapboxgl-popup-tip {
+  border-top-color: #ffffff !important;
+}
+
+.amenity-popup .mapboxgl-popup-close-button {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 18px;
+  padding: 4px 8px;
+  z-index: 1;
+  right: 2px;
+  top: 2px;
+}
+
+.light .amenity-popup .mapboxgl-popup-close-button {
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.amenity-popup .mapboxgl-popup-close-button:hover {
+  color: white;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
 }
 
 /* ── FAB Button ── */
