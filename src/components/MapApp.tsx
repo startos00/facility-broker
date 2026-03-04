@@ -201,10 +201,29 @@ export default function MapApp() {
   const [drawnBoundary, setDrawnBoundary] = useState<GeoJSON.Polygon | null>(null);
 
   // ── 3D Model Interaction ──
-  const DEFAULT_MODEL_LNGLAT: [number, number] = [144.97985676118213, -37.8626556260632];
+  interface ModelState {
+    id: string;
+    defaultLngLat: [number, number];
+    lngLatRef: React.MutableRefObject<[number, number]>;
+    bearingRef: React.MutableRefObject<number>;
+  }
+
   const mapInstanceRef = useRef<mapboxgl.Map | null>(null);
-  const modelLngLatRef = useRef<[number, number]>([...DEFAULT_MODEL_LNGLAT]);
-  const modelBearingRef = useRef(0);
+
+  // Sacred Heart Church
+  const sacredHeartLngLatRef = useRef<[number, number]>([144.97985676118213, -37.8626556260632]);
+  const sacredHeartBearingRef = useRef(0);
+
+  // Berth No. 5
+  const berthLngLatRef = useRef<[number, number]>([144.92684726043478, -37.817921040697534]);
+  const berthBearingRef = useRef(0);
+
+  const models: ModelState[] = [
+    { id: 'sacred-heart-church', defaultLngLat: [144.97985676118213, -37.8626556260632], lngLatRef: sacredHeartLngLatRef, bearingRef: sacredHeartBearingRef },
+    { id: 'berth-no5', defaultLngLat: [144.92684726043478, -37.817921040697534], lngLatRef: berthLngLatRef, bearingRef: berthBearingRef },
+  ];
+
+  const activeModelRef = useRef<ModelState | null>(null);
   const modelDragStateRef = useRef<{
     active: boolean;
     mode: 'drag' | 'rotate';
@@ -219,30 +238,33 @@ export default function MapApp() {
   const [modelRotateMode, setModelRotateMode] = useState(false);
   const rotateModeStartBearingRef = useRef(0);
   const rotateModeStartScreenXRef = useRef(0);
-  const SACRED_HEART_MODEL_ID = 'sacred-heart-church';
 
-  // Load saved model placement on mount
+  // Load saved model placements on mount
   useEffect(() => {
-    fetch(`/api/model-placements?modelId=${SACRED_HEART_MODEL_ID}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data?.longitude != null && data?.latitude != null) {
-          modelLngLatRef.current = [data.longitude, data.latitude];
-          modelBearingRef.current = data.bearing ?? 0;
-        }
-      })
-      .catch(() => {});
+    for (const model of models) {
+      fetch(`/api/model-placements?modelId=${model.id}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.longitude != null && data?.latitude != null) {
+            model.lngLatRef.current = [data.longitude, data.latitude];
+            model.bearingRef.current = data.bearing ?? 0;
+          }
+        })
+        .catch(() => {});
+    }
   }, []);
 
-  const saveModelPlacement = useCallback(() => {
+  const saveModelPlacement = useCallback((model?: ModelState) => {
+    const m = model ?? activeModelRef.current;
+    if (!m) return;
     fetch('/api/model-placements', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        modelId: SACRED_HEART_MODEL_ID,
-        longitude: modelLngLatRef.current[0],
-        latitude: modelLngLatRef.current[1],
-        bearing: modelBearingRef.current,
+        modelId: m.id,
+        longitude: m.lngLatRef.current[0],
+        latitude: m.lngLatRef.current[1],
+        bearing: m.bearingRef.current,
       }),
     }).catch(() => {});
   }, []);
@@ -432,9 +454,9 @@ export default function MapApp() {
 
       render(this: any, gl: WebGL2RenderingContext, matrix: number[]) {
         // Recompute position from refs each frame (enables drag/rotate)
-        const mc = mapboxgl.MercatorCoordinate.fromLngLat(modelLngLatRef.current, 0);
+        const mc = mapboxgl.MercatorCoordinate.fromLngLat(sacredHeartLngLatRef.current, 0);
         const scale = mc.meterInMercatorCoordinateUnits();
-        const bearingRad = (modelBearingRef.current * Math.PI) / 180;
+        const bearingRad = (sacredHeartBearingRef.current * Math.PI) / 180;
 
         const rotationX = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1, 0, 0), BASE_ROTATE_X);
         const rotationBearing = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0, 1, 0), bearingRad);
@@ -454,17 +476,80 @@ export default function MapApp() {
     };
 
     map.addLayer(customLayer as mapboxgl.CustomLayerInterface);
+
+    // ── Berth No. 5 Model ──
+    const berthLayer = {
+      id: 'berth-no5-model',
+      type: 'custom',
+      renderingMode: '3d',
+
+      onAdd(this: any, map: mapboxgl.Map, gl: WebGL2RenderingContext) {
+        this.camera = new THREE.Camera();
+        this.scene = new THREE.Scene();
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff);
+        directionalLight.position.set(0, -70, 100).normalize();
+        this.scene.add(directionalLight);
+
+        const directionalLight2 = new THREE.DirectionalLight(0xffffff);
+        directionalLight2.position.set(0, 70, 100).normalize();
+        this.scene.add(directionalLight2);
+
+        const loader = new GLTFLoader();
+        loader.load('/models/berth-no5/berth_no5_compressed.glb', (gltf: any) => {
+          this.scene.add(gltf.scene);
+        });
+
+        this.map = map;
+        this.renderer = new THREE.WebGLRenderer({
+          canvas: map.getCanvas(),
+          context: gl,
+          antialias: true,
+        });
+        this.renderer.autoClear = false;
+      },
+
+      render(this: any, gl: WebGL2RenderingContext, matrix: number[]) {
+        const mc = mapboxgl.MercatorCoordinate.fromLngLat(berthLngLatRef.current, 0);
+        const scale = mc.meterInMercatorCoordinateUnits();
+        const bearingRad = (berthBearingRef.current * Math.PI) / 180;
+
+        const rotationX = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1, 0, 0), BASE_ROTATE_X);
+        const rotationBearing = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0, 1, 0), bearingRad);
+
+        const m = new THREE.Matrix4().fromArray(matrix);
+        const l = new THREE.Matrix4()
+          .makeTranslation(mc.x, mc.y, mc.z)
+          .scale(new THREE.Vector3(scale, -scale, scale))
+          .multiply(rotationX)
+          .multiply(rotationBearing);
+
+        this.camera.projectionMatrix = m.multiply(l);
+        this.renderer.resetState();
+        this.renderer.render(this.scene, this.camera);
+        this.map.triggerRepaint();
+      },
+    };
+
+    map.addLayer(berthLayer as mapboxgl.CustomLayerInterface);
   }, []);
 
   // ── 3D Model Drag / Rotate ──
   const MODEL_HIT_RADIUS_PX = 40;
 
-  const isNearModel = (map: mapboxgl.Map, point: { x: number; y: number }) => {
-    const modelScreen = map.project(modelLngLatRef.current as mapboxgl.LngLatLike);
-    const dx = point.x - modelScreen.x;
-    const dy = point.y - modelScreen.y;
-    return dx * dx + dy * dy <= MODEL_HIT_RADIUS_PX * MODEL_HIT_RADIUS_PX;
+  const findNearestModel = (map: mapboxgl.Map, point: { x: number; y: number }): ModelState | null => {
+    let closest: ModelState | null = null;
+    let closestDist = MODEL_HIT_RADIUS_PX * MODEL_HIT_RADIUS_PX;
+    for (const model of models) {
+      const s = map.project(model.lngLatRef.current as mapboxgl.LngLatLike);
+      const d = (point.x - s.x) ** 2 + (point.y - s.y) ** 2;
+      if (d <= closestDist) { closestDist = d; closest = model; }
+    }
+    return closest;
   };
+
+  const isNearAnyModel = (map: mapboxgl.Map, point: { x: number; y: number }) =>
+    findNearestModel(map, point) !== null;
 
   const handleModelMouseDown = useCallback(
     (e: MapMouseEvent) => {
@@ -472,23 +557,25 @@ export default function MapApp() {
       if (!map) return;
       if (submissionStep === 'placing' || submissionStep === 'drawing') return;
       if (e.originalEvent.button !== 0) return;
-      if (modelRotateMode) return; // rotate mode uses mousemove directly, not drag
-      if (!isNearModel(map, e.point)) return;
+      if (modelRotateMode) return;
 
+      const hit = findNearestModel(map, e.point);
+      if (!hit) return;
+
+      activeModelRef.current = hit;
       modelDragStateRef.current = {
         active: true,
         mode: 'drag',
         startScreenX: e.point.x,
         startScreenY: e.point.y,
-        startLngLat: [...modelLngLatRef.current] as [number, number],
-        startBearing: modelBearingRef.current,
+        startLngLat: [...hit.lngLatRef.current] as [number, number],
+        startBearing: hit.bearingRef.current,
       };
 
       setModelInteracting('drag');
       map.dragPan.disable();
       e.originalEvent.preventDefault();
 
-      // Handle mouse-up outside the canvas
       const handleGlobalMouseUp = () => {
         if (modelDragStateRef.current?.active) {
           justDraggedRef.current = true;
@@ -511,7 +598,6 @@ export default function MapApp() {
       if (submissionStep === 'placing' || submissionStep === 'drawing') return;
 
       if (modelRotateMode) {
-        // Exit rotate mode on any double-click
         setModelRotateMode(false);
         setModelInteracting(null);
         map.dragPan.enable();
@@ -519,12 +605,13 @@ export default function MapApp() {
         return;
       }
 
-      if (!isNearModel(map, e.point)) return;
+      const hit = findNearestModel(map, e.point);
+      if (!hit) return;
 
-      // Enter rotate mode
       e.originalEvent.preventDefault();
       e.originalEvent.stopPropagation();
-      rotateModeStartBearingRef.current = modelBearingRef.current;
+      activeModelRef.current = hit;
+      rotateModeStartBearingRef.current = hit.bearingRef.current;
       rotateModeStartScreenXRef.current = e.point.x;
       setModelRotateMode(true);
       setModelInteracting('rotate');
@@ -534,21 +621,20 @@ export default function MapApp() {
   );
 
   const handleModelMouseMove = useCallback((e: MapMouseEvent) => {
-    // Handle rotate mode (free mouse movement, no button held)
-    if (modelRotateMode) {
+    if (modelRotateMode && activeModelRef.current) {
       const dx = e.point.x - rotateModeStartScreenXRef.current;
-      modelBearingRef.current = rotateModeStartBearingRef.current + dx * 0.5;
+      activeModelRef.current.bearingRef.current = rotateModeStartBearingRef.current + dx * 0.5;
       return;
     }
 
-    // Handle drag mode
     const map = mapInstanceRef.current;
     const drag = modelDragStateRef.current;
-    if (!map || !drag?.active) return;
+    const active = activeModelRef.current;
+    if (!map || !drag?.active || !active) return;
 
     const startGeo = map.unproject([drag.startScreenX, drag.startScreenY]);
     const currentGeo = map.unproject([e.point.x, e.point.y]);
-    modelLngLatRef.current = [
+    active.lngLatRef.current = [
       drag.startLngLat[0] + (currentGeo.lng - startGeo.lng),
       drag.startLngLat[1] + (currentGeo.lat - startGeo.lat),
     ];
@@ -597,10 +683,12 @@ export default function MapApp() {
     setSelectedArchiveEntry(null);
     setShowLens(false);
     setShowPulse(false);
-    // Reset 3D model to default when returning to St Kilda
+    // Reset 3D models to defaults when returning to St Kilda
     if (city === 'st-kilda') {
-      modelLngLatRef.current = [...DEFAULT_MODEL_LNGLAT];
-      modelBearingRef.current = 0;
+      for (const model of models) {
+        model.lngLatRef.current = [...model.defaultLngLat] as [number, number];
+        model.bearingRef.current = 0;
+      }
     }
   };
 
@@ -762,7 +850,7 @@ export default function MapApp() {
           if (!modelDragStateRef.current?.active && !modelRotateMode) {
             setCursorCoords({ lat: e.lngLat.lat, lng: e.lngLat.lng });
             if (mapInstanceRef.current) {
-              setModelHovered(isNearModel(mapInstanceRef.current, e.point));
+              setModelHovered(isNearAnyModel(mapInstanceRef.current, e.point));
             }
           } else {
             setCursorCoords({ lat: e.lngLat.lat, lng: e.lngLat.lng });

@@ -4,12 +4,12 @@
     "lib": [
       "dom",
       "dom.iterable",
-      "esnext"
+      "esnext"c;l
     ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
-    "noEmit": true,
+    "noEmit": true,1
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
